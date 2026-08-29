@@ -305,3 +305,56 @@ def test_end_to_end_unscripted_speech_produces_no_filler_hashtags():
         for p in posts:
             for tag in p.hashtags:
                 assert tag not in ("#yeah", "#when", "#really"), f"filler hashtag leaked through: {tag}"
+
+
+# ---------------------------------------------------------------------------
+# Body must not repeat the hook sentence. _extract_hook (clip_selector.py)
+# now snaps to real sentence boundaries, so hook is usually exactly the
+# clip's first sentence -- and body (the full clip text) previously always
+# included that same sentence again as its own opening line.
+# ---------------------------------------------------------------------------
+
+def test_body_after_hook_strips_matching_prefix():
+    hook = "we spent six months talking to customers"
+    body = "we spent six months talking to customers. then we started building."
+    assert repurposer._body_after_hook(hook, body) == "then we started building."
+
+
+def test_body_after_hook_falls_back_when_hook_not_a_prefix():
+    hook = "a totally different paraphrase"
+    body = "the actual transcript text says something else entirely."
+    assert repurposer._body_after_hook(hook, body) == body
+
+
+def test_body_after_hook_falls_back_when_remainder_would_be_empty():
+    hook = "this is the whole clip"
+    body = "this is the whole clip."
+    assert repurposer._body_after_hook(hook, body) == body.strip()
+
+
+def test_body_after_hook_is_case_insensitive():
+    hook = "WE SPENT SIX MONTHS"
+    body = "we spent six months talking to customers before writing code."
+    assert repurposer._body_after_hook(hook, body) == "talking to customers before writing code."
+
+
+def test_template_post_body_does_not_repeat_hook_sentence(clip, transcript):
+    post = repurposer._template_post("linkedin", clip, transcript, learnings=None)
+    hook_sentence = clip.hook.rstrip(".").lower()
+    paragraphs = post.text.split("\n\n")
+    assert len(paragraphs) >= 2, "expected a separate body paragraph for this multi-sentence clip"
+    assert not paragraphs[1].lower().startswith(hook_sentence)
+
+
+def test_shorts_description_does_not_repeat_title(clip, transcript):
+    post = repurposer._template_post("shorts", clip, transcript, learnings=None)
+    hook_sentence = clip.hook.rstrip(".").lower()
+    description = post.text.split("Description: ", 1)[1].lower()
+    assert not description.startswith(hook_sentence)
+
+
+def test_newsletter_body_does_not_repeat_subject(clip, transcript):
+    post = repurposer._template_post("newsletter", clip, transcript, learnings=None)
+    hook_sentence = clip.hook.rstrip(".").lower()
+    body = post.text.split("\n\n", 1)[1].lower()
+    assert not body.startswith(hook_sentence)

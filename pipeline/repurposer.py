@@ -157,6 +157,26 @@ def _clip_text(clip: Clip, transcript: Transcript) -> str:
     return text or clip.hook
 
 
+def _body_after_hook(hook: str, body: str) -> str:
+    """Strips the hook's own sentence from the front of body, so a template
+    post doesn't say the same sentence twice -- once as the hook line,
+    again as the body's first sentence (near-guaranteed now that
+    _extract_hook snaps to real sentence boundaries, so hook is usually
+    exactly the clip's first sentence). Falls back to the full body
+    untouched if hook isn't a clean prefix of it (e.g. an LLM-sourced hook
+    that paraphrases rather than quoting the transcript), and falls back to
+    the full body if stripping the prefix would leave nothing (a
+    single-sentence clip) -- a harmlessly-repeated sentence beats a blank
+    field."""
+    hook_clean = hook.strip().rstrip(".")
+    body_stripped = body.strip()
+    if hook_clean and body_stripped.lower().startswith(hook_clean.lower()):
+        remainder = body_stripped[len(hook_clean):].lstrip().lstrip(".").strip()
+        if remainder:
+            return remainder
+    return body_stripped
+
+
 def _hashtags(clip: Clip, count: int, learnings: Learnings | None) -> list[str]:
     if count == 0:
         return []
@@ -188,19 +208,20 @@ def _template_post(platform: Platform, clip: Clip, transcript: Transcript, learn
         title = truncate(hook, 100)
         prefix = f"Title: {title}\n\nDescription: "
         description_budget = rule.max_chars - len(prefix)
-        description = truncate(body, description_budget)
+        description = truncate(_body_after_hook(hook, body), description_budget)
         text = truncate(prefix + description, rule.max_chars)
         return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=cta, generation_method="template")
 
     if platform == "newsletter":
         subject = truncate(hook, 80)
-        text = f"Subject: {subject}\n\n{body}"
+        text = f"Subject: {subject}\n\n{_body_after_hook(hook, body)}"
         text = truncate(text, rule.max_chars)
         return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=cta, generation_method="template")
 
     pieces = [f"{hook}."]
-    if body and body.lower() != hook.lower():
-        pieces.append(body)
+    remainder = _body_after_hook(hook, body)
+    if remainder and remainder.lower() != hook.lower():
+        pieces.append(remainder)
     if cta:
         pieces.append(cta)
     text = "\n\n".join(pieces)
