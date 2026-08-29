@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import repurposer
-from pipeline.schemas import Clip, Learnings, Post, Transcript
+from pipeline.schemas import Clip, Learnings, Post, Transcript, TranscriptSegment
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_transcript.json"
 
@@ -45,6 +45,42 @@ def test_generate_posts_no_llm_returns_one_per_platform(monkeypatch, clip, trans
 @pytest.mark.parametrize("platform", list(repurposer.PLATFORM_RULES.keys()))
 def test_template_post_respects_char_limit(platform, clip, transcript):
     post = repurposer._template_post(platform, clip, transcript, learnings=None)
+    rule = repurposer.PLATFORM_RULES[platform]
+    assert len(post.text) <= rule.max_chars
+
+
+@pytest.fixture
+def long_body_transcript() -> Transcript:
+    # Long enough (~3600 chars) that the old shorts budget math (off by 2
+    # chars) actually overflows -- the short fixture body never did.
+    long_text = " ".join(f"word{i}" for i in range(600))
+    seg = TranscriptSegment(id=0, start=0.0, end=120.0, text=long_text, words=[])
+    return Transcript(run_id="long-test", source_path="x.mp4", duration=120.0, segments=[seg])
+
+
+@pytest.fixture
+def long_clip() -> Clip:
+    return Clip(
+        id="clip-01",
+        start=0.0,
+        end=120.0,
+        hook="a" * 150,
+        topic="testing",
+        score=0.5,
+        source_segment_ids=[0],
+        selection_method="heuristic",
+    )
+
+
+def test_shorts_post_never_exceeds_max_chars_with_long_body(long_clip, long_body_transcript):
+    post = repurposer._template_post("shorts", long_clip, long_body_transcript, learnings=None)
+    rule = repurposer.PLATFORM_RULES["shorts"]
+    assert len(post.text) <= rule.max_chars
+
+
+@pytest.mark.parametrize("platform", list(repurposer.PLATFORM_RULES.keys()))
+def test_all_platforms_respect_max_chars_with_long_body(platform, long_clip, long_body_transcript):
+    post = repurposer._template_post(platform, long_clip, long_body_transcript, learnings=None)
     rule = repurposer.PLATFORM_RULES[platform]
     assert len(post.text) <= rule.max_chars
 
@@ -109,3 +145,89 @@ def test_llm_path_used_when_client_present(monkeypatch, clip, transcript):
     assert len(posts) == 1
     assert posts[0].generation_method == "llm"
     assert posts[0].text == "custom llm post"
+
+
+def test_llm_post_text_is_truncated_to_platform_limit(monkeypatch, clip, transcript):
+    class FakeClient:
+        def complete_json(self, system, user, schema_hint):
+            return {"posts": [{"platform": "x", "text": "y" * 1000, "hashtags": [], "cta": None}]}
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: FakeClient())
+
+    posts = repurposer.generate_posts(clip, transcript, platforms=("x",))
+    assert len(posts[0].text) <= repurposer.PLATFORM_RULES["x"].max_chars
+
+
+def test_llm_failure_falls_back_to_templates(monkeypatch, clip, transcript, caplog):
+    class FailingClient:
+        def complete_json(self, system, user, schema_hint):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: FailingClient())
+
+    with caplog.at_level("WARNING"):
+        posts = repurposer.generate_posts(clip, transcript, platforms=("x", "linkedin"))
+
+    assert len(posts) == 2
+    assert all(p.generation_method == "template" for p in posts)
+    assert "falling back to templates" in caplog.text
+
+
+def test_llm_empty_result_falls_back_to_templates(monkeypatch, clip, transcript):
+    class EmptyClient:
+        def complete_json(self, system, user, schema_hint):
+            return {"posts": []}
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: EmptyClient())
+
+    posts = repurposer.generate_posts(clip, transcript, platforms=("x",))
+    assert len(posts) == 1
+    assert posts[0].generation_method == "template"
+
+
+def test_llm_missing_platform_is_backfilled_with_template(monkeypatch, clip, transcript):
+    class PartialClient:
+        def complete_json(self, system, user, schema_hint):
+            return {"posts": [{"platform": "x", "text": "only x", "hashtags": [], "cta": None}]}
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: PartialClient())
+
+    posts = repurposer.generate_posts(clip, transcript, platforms=("x", "linkedin"))
+    assert len(posts) == 2
+    by_platform = {p.platform: p for p in posts}
+    assert by_platform["x"].generation_method == "llm"
+    assert by_platform["linkedin"].generation_method == "template"
+
+
+def test_llm_unknown_platform_in_response_is_skipped(monkeypatch, clip, transcript):
+    class WeirdClient:
+        def complete_json(self, system, user, schema_hint):
+            return {
+                "posts": [
+                    {"platform": "tiktok", "text": "unsupported", "hashtags": [], "cta": None},
+                    {"platform": "x", "text": "supported", "hashtags": [], "cta": None},
+                ]
+            }
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: WeirdClient())
+
+    posts = repurposer.generate_posts(clip, transcript, platforms=("x",))
+    assert len(posts) == 1
+    assert posts[0].platform == "x"
+
+
+def test_llm_learnings_in_prompt(monkeypatch, clip, transcript):
+    captured = {}
+
+    class CapturingClient:
+        def complete_json(self, system, user, schema_hint):
+            captured["system"] = system
+            return {"posts": [{"platform": "x", "text": "t", "hashtags": [], "cta": None}]}
+
+    monkeypatch.setattr(repurposer, "get_llm_client", lambda: CapturingClient())
+    learnings = Learnings(top_keywords=["compoundinterest"], best_platforms=["instagram", "x"])
+
+    repurposer.generate_posts(clip, transcript, platforms=("x",), learnings=learnings)
+
+    assert "compoundinterest" in captured["system"]
+    assert "instagram" in captured["system"]
