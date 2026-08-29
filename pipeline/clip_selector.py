@@ -50,6 +50,13 @@ STOPWORDS = {
     "so", "just", "like", "know", "think", "get", "got", "going", "can",
     "will", "would", "could", "there", "here", "what", "which", "who",
     "im", "its", "not", "do", "does", "did", "about", "if", "then", "back",
+    # Conversational filler: harmless in a heuristic hook-word/pause scan,
+    # but toxic in _extract_topic()'s output once that feeds hashtags
+    # (e.g. "#yeah", "#when" on unscripted interview-style speech, which
+    # has none of the hook-word density synthetic test transcripts do).
+    "yeah", "when", "where", "while", "um", "uh", "umm", "uhh", "okay",
+    "ok", "well", "really", "very", "much", "pretty", "gonna", "wanna",
+    "kinda", "sorta", "basically", "things", "thing", "way", "lot",
 }
 
 
@@ -243,8 +250,30 @@ def _dedupe_and_limit(scored: list[tuple[float, object]], max_clips: int) -> lis
     return selected
 
 
+_HOOK_SEARCH_SLACK = 6  # willing to run a bit long to land on a full sentence
+
+
 def _extract_hook(text: str, max_words: int = 12) -> str:
+    """Prefers ending on a real sentence boundary near max_words over a
+    blind word-count cutoff, which could previously chop off the one word
+    that made the sentence land (e.g. "...we didn't really have a..."
+    instead of "...we didn't really have a plan."). Runs up to
+    _HOOK_SEARCH_SLACK words past max_words to find one; falls back to a
+    comma within the original window, then to the original hard truncation
+    if no natural break exists in range at all."""
     words = text.split()
+    if not words:
+        return ""
+
+    search_limit = min(len(words), max_words + _HOOK_SEARCH_SLACK)
+    for i in range(search_limit):
+        if words[i].rstrip("\"')]}").endswith((".", "!", "?")):
+            return " ".join(words[: i + 1])
+
+    for i in range(min(max_words, len(words)) - 1, -1, -1):
+        if words[i].rstrip("\"')]}").endswith(","):
+            return " ".join(words[: i + 1]).rstrip(",") + "..."
+
     hook = " ".join(words[:max_words])
     return hook if hook.endswith((".", "!", "?")) else hook + "..."
 

@@ -11,6 +11,7 @@ way (mirrors skills/content-repurposer/SKILL.md).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -31,7 +32,12 @@ _truncate = truncate
 class _PlatformRule:
     max_chars: int
     hashtag_count: int
-    cta: str | None
+    # Multiple variants, not one fixed string -- a single hardcoded CTA
+    # appearing verbatim on every post this tool ever generates for a
+    # platform is the clearest "mass-produced, not platform-native" tell
+    # there is. _pick_cta() selects one deterministically per clip (empty
+    # tuple = no CTA, e.g. x/shorts, where one would read as noise).
+    cta_variants: tuple[str, ...]
     tone_note: str
     # The platform's real hard character cap once CTA+hashtags are appended
     # into a single caption (max_chars above is a soft budget on the *post
@@ -46,44 +52,74 @@ PLATFORM_RULES: dict[Platform, _PlatformRule] = {
     "linkedin": _PlatformRule(
         max_chars=1200,
         hashtag_count=4,
-        cta="What's been your experience with this? Curious to hear below.",
+        cta_variants=(
+            "What's been your experience with this? Curious to hear below.",
+            "Have you run into this too? Drop a comment.",
+            "Curious how others have handled this -- let me know.",
+        ),
         tone_note="professional, first-person, short paragraphs",
         hard_limit=3000,
     ),
     "x": _PlatformRule(
         max_chars=260,
         hashtag_count=2,
-        cta=None,
+        cta_variants=(),
         tone_note="punchy, single idea, no fluff",
         hard_limit=280,
     ),
     "threads": _PlatformRule(
         max_chars=450,
         hashtag_count=3,
-        cta="Curious what you think \U0001f447",
+        cta_variants=(
+            "Curious what you think \U0001f447",
+            "What's your take?",
+            "Anyone else run into this?",
+        ),
         tone_note="casual, conversational",
         hard_limit=500,
     ),
     "instagram": _PlatformRule(
         max_chars=2000,
         hashtag_count=8,
-        cta="Save this for later ✨",
+        cta_variants=(
+            "Save this for later ✨",
+            "Tag someone who needs to hear this ✨",
+            "Drop a 🙌 if this resonates",
+        ),
         tone_note="caption + hashtag block",
         hard_limit=2200,
     ),
     "shorts": _PlatformRule(
         max_chars=480,
         hashtag_count=3,
-        cta=None,
+        cta_variants=(),
         tone_note="Title: ... / Description: ... metadata, not prose",
     ),
     "newsletter": _PlatformRule(
         max_chars=2500,
         hashtag_count=0,
-        cta="Reply and tell me what resonated most.",
+        cta_variants=(
+            "Reply and tell me what resonated most.",
+            "Hit reply -- I read every response.",
+            "Let me know your thoughts by replying to this email.",
+        ),
         tone_note="longer-form, subject line + body",
     ),
 }
+
+
+def _pick_cta(rule: _PlatformRule, clip: Clip) -> str | None:
+    """Deterministic per clip (same clip -> same CTA, always, including
+    across processes -- Python's built-in hash() is per-process-salted for
+    str and unsuitable here), but varied across clips so the same string
+    doesn't appear on every post this tool generates."""
+    if not rule.cta_variants:
+        return None
+    if len(rule.cta_variants) == 1:
+        return rule.cta_variants[0]
+    digest = hashlib.sha256(clip.id.encode("utf-8")).digest()
+    idx = int.from_bytes(digest[:4], "big") % len(rule.cta_variants)
+    return rule.cta_variants[idx]
 
 
 def generate_posts(
@@ -146,6 +182,7 @@ def _template_post(platform: Platform, clip: Clip, transcript: Transcript, learn
     hook = clip.hook.rstrip(".").strip()
     body = _clip_text(clip, transcript)
     hashtags = _hashtags(clip, rule.hashtag_count, learnings)
+    cta = _pick_cta(rule, clip)
 
     if platform == "shorts":
         title = truncate(hook, 100)
@@ -153,19 +190,19 @@ def _template_post(platform: Platform, clip: Clip, transcript: Transcript, learn
         description_budget = rule.max_chars - len(prefix)
         description = truncate(body, description_budget)
         text = truncate(prefix + description, rule.max_chars)
-        return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=rule.cta, generation_method="template")
+        return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=cta, generation_method="template")
 
     if platform == "newsletter":
         subject = truncate(hook, 80)
         text = f"Subject: {subject}\n\n{body}"
         text = truncate(text, rule.max_chars)
-        return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=rule.cta, generation_method="template")
+        return Post(platform=platform, clip_id=clip.id, text=text, hashtags=hashtags, cta=cta, generation_method="template")
 
     pieces = [f"{hook}."]
     if body and body.lower() != hook.lower():
         pieces.append(body)
-    if rule.cta:
-        pieces.append(rule.cta)
+    if cta:
+        pieces.append(cta)
     text = "\n\n".join(pieces)
     text = truncate(text, rule.max_chars)
 
@@ -174,7 +211,7 @@ def _template_post(platform: Platform, clip: Clip, transcript: Transcript, learn
         clip_id=clip.id,
         text=text,
         hashtags=hashtags,
-        cta=rule.cta,
+        cta=cta,
         generation_method="template",
     )
 

@@ -284,3 +284,64 @@ def test_build_candidates_is_not_quadratic():
 
     assert candidates
     assert elapsed < 1.5, f"_build_candidates took {elapsed:.2f}s on a 20-minute transcript (expected <1.5s)"
+
+
+# ---------------------------------------------------------------------------
+# _extract_topic: conversational filler must not leak into topic/hashtags
+#
+# Regression for real output-quality bugs found by actually running the
+# pipeline against unscripted-sounding speech (not the hook-word-stuffed
+# fixtures above): "yeah"/"when" survived the old STOPWORDS set and turned
+# into "#yeah"/"#when" hashtags via repurposer._hashtags().
+# ---------------------------------------------------------------------------
+
+def test_extract_topic_excludes_conversational_filler():
+    text = "yeah so when we started the company we didn't really have a plan"
+    topic = clip_selector._extract_topic(text)
+    for filler in ("yeah", "when", "really"):
+        assert filler not in topic.split()
+
+
+def test_extract_topic_still_surfaces_real_content_words():
+    text = "yeah so when we started the company we didn't really have a plan"
+    topic = clip_selector._extract_topic(text)
+    assert "company" in topic.split()
+    assert "plan" in topic.split() or "started" in topic.split()
+
+
+# ---------------------------------------------------------------------------
+# _extract_hook: prefer a real sentence/clause boundary over a blind
+# word-count cutoff
+#
+# Regression for the real bug: the old version truncated exactly one word
+# before the sentence's point ("...we didn't really have a...") because
+# "plan." fell one word past the 12-word window.
+# ---------------------------------------------------------------------------
+
+def test_extract_hook_prefers_full_sentence_over_word_count_cutoff():
+    text = "yeah so when we started the company we didn't really have a plan. we just knew we wanted to build something."
+    hook = clip_selector._extract_hook(text, max_words=12)
+    assert hook == "yeah so when we started the company we didn't really have a plan."
+
+
+def test_extract_hook_falls_back_to_comma_when_no_sentence_in_range():
+    text = "given everything that happened that year, we decided to slow down and rethink the whole approach from scratch together"
+    hook = clip_selector._extract_hook(text, max_words=8)
+    assert hook.endswith("...")
+    assert "," not in hook  # the comma itself is stripped, not just left dangling
+
+
+def test_extract_hook_falls_back_to_word_count_with_no_natural_break():
+    text = " ".join(f"word{i}" for i in range(30))  # no punctuation anywhere
+    hook = clip_selector._extract_hook(text, max_words=12)
+    assert hook.endswith("...")
+    assert len(hook.rstrip(".").split()) == 12
+
+
+def test_extract_hook_empty_text_returns_empty_string():
+    assert clip_selector._extract_hook("") == ""
+
+
+def test_extract_hook_short_text_returns_as_is():
+    hook = clip_selector._extract_hook("just a short sentence.", max_words=12)
+    assert hook == "just a short sentence."

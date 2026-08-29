@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import repurposer
-from pipeline.schemas import Clip, Learnings, Transcript, TranscriptSegment
+from pipeline import clip_selector, repurposer
+from pipeline.schemas import Clip, Learnings, Transcript, TranscriptSegment, Word
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_transcript.json"
 
@@ -231,3 +231,77 @@ def test_llm_learnings_in_prompt(monkeypatch, clip, transcript):
 
     assert "compoundinterest" in captured["system"]
     assert "instagram" in captured["system"]
+
+
+# ---------------------------------------------------------------------------
+# CTA rotation -- a single fixed CTA string appearing verbatim on every post
+# this tool ever generates for a platform is the clearest "mass-produced,
+# not platform-native" tell there is. _pick_cta must vary it across clips
+# while staying deterministic for a given clip.
+# ---------------------------------------------------------------------------
+
+def test_cta_varies_across_different_clips(transcript):
+    clip_a = Clip(id="run-clip-01", start=0, end=10, hook="h", topic="t", score=0.5)
+    clip_b = Clip(id="run-clip-02", start=10, end=20, hook="h", topic="t", score=0.5)
+    clip_c = Clip(id="run-clip-03", start=20, end=30, hook="h", topic="t", score=0.5)
+
+    ctas = {
+        repurposer._template_post("linkedin", c, transcript, learnings=None).cta
+        for c in (clip_a, clip_b, clip_c)
+    }
+    # Not asserting all 3 differ (a hash collision is possible with only 3
+    # variants) -- but seeing more than one value across 3 distinct clip ids
+    # is the real regression check against "always the same string".
+    assert len(ctas) > 1
+
+
+def test_cta_deterministic_for_same_clip(clip, transcript):
+    a = repurposer._template_post("linkedin", clip, transcript, learnings=None)
+    b = repurposer._template_post("linkedin", clip, transcript, learnings=None)
+    assert a.cta == b.cta
+
+
+def test_x_and_shorts_still_have_no_cta(clip, transcript):
+    assert repurposer._template_post("x", clip, transcript, learnings=None).cta is None
+    assert repurposer._template_post("shorts", clip, transcript, learnings=None).cta is None
+
+
+def test_pick_cta_single_variant_platform_is_stable():
+    rule = repurposer._PlatformRule(max_chars=100, hashtag_count=0, cta_variants=("only one",), tone_note="x")
+    clip_a = Clip(id="a", start=0, end=1, hook="h", topic="t", score=0.5)
+    clip_b = Clip(id="b", start=0, end=1, hook="h", topic="t", score=0.5)
+    assert repurposer._pick_cta(rule, clip_a) == "only one"
+    assert repurposer._pick_cta(rule, clip_b) == "only one"
+
+
+# ---------------------------------------------------------------------------
+# Real-output regression: hashtags must not contain conversational filler
+# on unscripted-sounding speech. Found by actually running the zero-key
+# pipeline against ordinary interview-style speech instead of the
+# hook-word-stuffed fixture used everywhere else in this file.
+# ---------------------------------------------------------------------------
+
+def test_end_to_end_unscripted_speech_produces_no_filler_hashtags():
+    sentences = [
+        "yeah so when we started the company we didn't really have a plan.",
+        "we just knew we wanted to build something that solved our own problem.",
+        "and honestly the first version was pretty rough, a lot of things broke.",
+    ]
+    segments, t = [], 0.0
+    for i, sent in enumerate(sentences):
+        words = []
+        for tok in sent.split():
+            words.append(Word(text=tok, start=round(t, 2), end=round(t + 0.32, 2)))
+            t = round(t + 0.38, 2)
+        segments.append(TranscriptSegment(id=i, start=words[0].start, end=words[-1].end, text=sent, words=words))
+        t += 0.55
+    unscripted = Transcript(run_id="filler-check", source_path="x.mp4", duration=t, segments=segments)
+
+    clips = clip_selector._select_clips_heuristic(unscripted, max_clips=3, min_len=5.0, max_len=25.0, learnings=None)
+    assert clips
+
+    for c in clips:
+        posts = repurposer.generate_posts(c, unscripted, platforms=("linkedin",))
+        for p in posts:
+            for tag in p.hashtags:
+                assert tag not in ("#yeah", "#when", "#really"), f"filler hashtag leaked through: {tag}"
