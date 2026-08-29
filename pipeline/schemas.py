@@ -267,3 +267,25 @@ class GraphicsPlan(BaseModel):
     beats: list[GraphicsBeat] = Field(default_factory=list)
     method: Literal["skipped", "llm"] = "skipped"
     skipped_reason: Optional[str] = None
+
+
+class QCFinding(BaseModel):
+    """One objective, deterministic QC check result -- see pipeline/qc.py.
+    Never anything subjective ("does this look good"): that loop stays
+    human-in-the-loop via `preview`, documented in README.md."""
+
+    clip_id: str
+    check: Literal["duration", "loudness", "silence", "caption_cue_length", "graphics_safe_area"]
+    severity: Literal["info", "warning"] = "warning"
+    message: str
+    measured: Optional[float] = None
+    expected: Optional[float] = None
+
+
+class QCReport(BaseModel):
+    run_id: str
+    findings: list[QCFinding] = Field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return not any(f.severity == "warning" for f in self.findings)

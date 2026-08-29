@@ -32,7 +32,20 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pipeline import analyst, audio, captioner, clip_selector, cutter, declutter, graphics, ingest, publisher, repurposer
+from pipeline import (
+    analyst,
+    audio,
+    captioner,
+    clip_selector,
+    cutter,
+    declutter,
+    graphics,
+    ingest,
+    preview,
+    publisher,
+    qc,
+    repurposer,
+)
 from pipeline import timeline as timeline_
 from pipeline import transcribe as transcribe_
 from pipeline.config import get_settings, new_run_id
@@ -45,6 +58,7 @@ from pipeline.schemas import (
     PipelineRun,
     Platform,
     Post,
+    QCReport,
     Transcript,
 )
 from pipeline.storage import (
@@ -716,6 +730,109 @@ def analyze_cmd(
     console.print(f"  top keywords: {', '.join(learnings.top_keywords) or 'n/a'}")
     if learnings.notes:
         console.print(f"  notes: {learnings.notes}")
+
+
+def _require_final_clips(run_id: str, command: str) -> dict[str, Path]:
+    final_path = stage_path(run_id, "final_clips")
+    if not final_path.exists():
+        console.print(
+            f"[bold red]failed[/bold red]: run_id={run_id} is missing final_clips.json -- "
+            f"has `caption` (or `graphics`) completed for this run? (`{command}` needs finished clip media)"
+        )
+        raise typer.Exit(code=1)
+    return _load_path_map(final_path)
+
+
+def _load_graphics_plans(run_id: str) -> dict[str, GraphicsPlan]:
+    plans_path = stage_path(run_id, "graphics_plans")
+    if not plans_path.exists():
+        return {}
+    return {p.clip_id: p for p in read_json_list(plans_path, GraphicsPlan)}
+
+
+@app.command("preview")
+def preview_cmd(
+    run_id: str,
+    clip_id: Optional[str] = typer.Option(None, "--clip-id", help="Only preview this one clip (default: all clips)"),
+    at: Optional[str] = typer.Option(
+        None, "--at", help="Comma-separated clip-relative seconds (default: 5 evenly-spaced frames + every graphics beat's midpoint)"
+    ),
+) -> None:
+    """Extracts PNG frames from each clip's final rendered output for
+    visual review -- zero-key, always works. The deterministic half of the
+    iterate-and-preview loop: preview -> look at the PNGs -> hand-edit
+    graphics_plans.json -> `graphics --only <clip-id>` re-renders -> preview
+    again (see README.md's "the subjective loop" section)."""
+    final = _require_final_clips(run_id, "preview")
+    clips_by_id = {c.id: c for c in read_json_list(stage_path(run_id, "clips"), Clip)}
+    plans_by_id = _load_graphics_plans(run_id)
+
+    explicit_timestamps: Optional[list[float]] = None
+    if at:
+        try:
+            explicit_timestamps = [float(t.strip()) for t in at.split(",") if t.strip()]
+        except ValueError:
+            console.print(f"[bold red]failed[/bold red]: --at must be a comma-separated list of numbers, got {at!r}")
+            raise typer.Exit(code=1)
+
+    target_ids = [clip_id] if clip_id else list(final.keys())
+    unknown = [cid for cid in target_ids if cid not in final]
+    if unknown:
+        console.print(f"[bold red]failed[/bold red]: unknown clip id(s) {unknown} -- not in final_clips.json")
+        raise typer.Exit(code=1)
+
+    out_root = run_dir(run_id) / "preview"
+    for cid in target_ids:
+        clip = clips_by_id.get(cid)
+        if explicit_timestamps is not None:
+            timestamps = explicit_timestamps
+        elif clip is not None:
+            timestamps = preview.default_preview_timestamps(clip.duration, plans_by_id.get(cid))
+        else:
+            timestamps = []
+        if not timestamps:
+            console.print(f"  {cid}: no timestamps to extract (unknown clip duration)")
+            continue
+        paths = preview.extract_frames(final[cid], timestamps, out_root / cid)
+        console.print(f"  {cid}: {len(paths)} frame(s) -> {out_root / cid}")
+
+    console.print(f"[bold]preview[/bold] run_id={run_id}: frames written under {out_root}")
+
+
+@app.command("qc")
+def qc_cmd(run_id: str) -> None:
+    """Writes qc.json: objective, deterministic checks only (duration vs.
+    expected, loudness vs. target, un-removed silence, over-long caption
+    cues, graphics beats that may overlap the caption safe area). Never
+    subjective -- that stays a human-in-the-loop judgment made via
+    `preview` (see README.md)."""
+    final = _require_final_clips(run_id, "qc")
+    clips = read_json_list(stage_path(run_id, "clips"), Clip)
+    transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
+    all_words = transcript.all_words()
+    settings = get_settings()
+    plans_by_id = _load_graphics_plans(run_id)
+
+    findings = []
+    for clip in clips:
+        if clip.id not in final:
+            continue
+        clip_words = [w for w in all_words if w.start >= clip.start and w.end <= clip.end]
+        findings.extend(
+            qc.run_checks_for_clip(clip, final[clip.id], clip_words, plans_by_id.get(clip.id), settings.audio_target_lufs)
+        )
+
+    report = QCReport(run_id=run_id, findings=findings)
+    write_json(stage_path(run_id, "qc"), report)
+
+    warnings = [f for f in findings if f.severity == "warning"]
+    infos = [f for f in findings if f.severity == "info"]
+    console.print(f"[bold]qc[/bold] run_id={run_id}: {len(warnings)} warning(s), {len(infos)} info finding(s)")
+    for f in findings:
+        style = "yellow" if f.severity == "warning" else "dim"
+        console.print(f"  [{style}]{f.clip_id} [{f.check}][/{style}]: {f.message}")
+    if report.passed:
+        console.print("[bold green]passed[/bold green]")
 
 
 # --------------------------------------------------------------------------

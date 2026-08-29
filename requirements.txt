@@ -7,3 +7,11 @@ faster-whisper>=1.0
 
 # Optional, for the LLM-enhanced path (dev/test only needs pytest below):
 # pip install -r requirements.txt -e ".[llm]"
+#
+# Other optional extras (see pyproject.toml):
+#   .[publish]     -- live Blotato/Ayrshare publishing (requests)
+#   .[elevenlabs]  -- ElevenLabs Scribe transcription (requests)
+#   .[diarize]     -- local pyannote.audio diarization (torch, large)
+#
+# graphics/ (HyperFrames) is a separate Node.js project, not pip-installable
+# -- see README.md's "Setting up `graphics`" section (`cd graphics && npm install`).
