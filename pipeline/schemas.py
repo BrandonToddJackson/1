@@ -9,7 +9,7 @@ imports the same shapes.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -104,10 +104,25 @@ class PipelineRun(BaseModel):
     stages_completed: list[str] = Field(default_factory=list)
     status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
     error: Optional[str] = None
+    # Tuning params (max_clips, min_len, max_len, platforms, ...) used for this
+    # run -- lets the CLI detect "you asked for different settings than last
+    # time" on a resume instead of silently reusing stale output. Absent on
+    # PipelineRun.json files written before this field existed; defaults to {}.
+    params: dict[str, Any] = Field(default_factory=dict)
 
     def mark_done(self, stage: str) -> None:
         if stage not in self.stages_completed:
             self.stages_completed.append(stage)
+
+    def undo(self, stage: str) -> None:
+        """Removes a stage from stages_completed (used when invalidating a
+        stage and everything downstream of it -- see pipeline/cli.py)."""
+        if stage in self.stages_completed:
+            self.stages_completed.remove(stage)
+
+    def mark_failed(self, stage: str, exc: BaseException) -> None:
+        self.status = "failed"
+        self.error = f"{stage}: {exc}"
 
 
 class PerformanceRecord(BaseModel):
@@ -139,6 +154,6 @@ class Learnings(BaseModel):
 
 class PublishResult(BaseModel):
     platform: str
-    method: Literal["outbox", "ayrshare"]
+    method: Literal["outbox", "ayrshare", "blotato"]
     location: str  # local path, or remote post id/url
     status: Literal["ready", "published", "failed"] = "ready"

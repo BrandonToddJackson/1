@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from pipeline import storage
 from pipeline.schemas import Clip, PipelineRun
 
@@ -46,3 +48,40 @@ def test_init_run_and_state_roundtrip(tmp_path, monkeypatch):
     loaded = storage.load_run_state("r1")
     assert loaded.stages_completed == ["ingest"]
     assert loaded.source == "video.mp4"
+
+
+def test_remove_run_path_deletes_file_and_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_root = storage.run_dir("r1")
+    (run_root).mkdir(parents=True)
+    (run_root / "clips.json").write_text("[]", encoding="utf-8")
+    (run_root / "clips_raw").mkdir()
+    (run_root / "clips_raw" / "clip-01.mp4").write_bytes(b"fake")
+
+    storage.remove_run_path("r1", "clips.json")
+    storage.remove_run_path("r1", "clips_raw")
+
+    assert not (run_root / "clips.json").exists()
+    assert not (run_root / "clips_raw").exists()
+
+
+def test_remove_run_path_missing_is_noop(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    storage.run_dir("r1").mkdir(parents=True)
+    storage.remove_run_path("r1", "does_not_exist.json")  # must not raise
+
+
+def test_remove_run_path_refuses_escape(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    storage.run_dir("r1").mkdir(parents=True)
+
+    with pytest.raises(ValueError):
+        storage.remove_run_path("r1", "../other_run/secret.json")
+
+
+def test_remove_run_path_refuses_run_dir_itself(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    storage.run_dir("r1").mkdir(parents=True)
+
+    with pytest.raises(ValueError):
+        storage.remove_run_path("r1", ".")
