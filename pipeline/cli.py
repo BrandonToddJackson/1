@@ -39,6 +39,7 @@ from pipeline.config import get_settings, new_run_id
 from pipeline.schemas import (
     Clip,
     DEFAULT_PLATFORMS,
+    EditPlan,
     MediaAsset,
     PipelineRun,
     Platform,
@@ -98,7 +99,7 @@ STAGE_REQUIRES: dict[str, tuple[str, ...]] = {
     "transcribe": ("enhanced_media.json",),
     "declutter": ("transcript.json",),
     "select_clips": ("transcript_clean.json",),
-    "cut": ("media.json", "clips.json"),
+    "cut": ("media.json", "clips.json", "edit_plan.json"),
     "caption": ("transcript_clean.json", "clips.json", "raw_clips.json"),
     "repurpose": ("transcript_clean.json", "clips.json"),
     "publish": ("posts.json",),
@@ -109,6 +110,7 @@ _PRODUCED_BY: dict[str, str] = {
     "enhanced_media.json": "enhance",
     "transcript.json": "transcribe",
     "transcript_clean.json": "declutter",
+    "edit_plan.json": "declutter",
     "clips.json": "select-clips",
     "raw_clips.json": "cut",
     "posts.json": "repurpose",
@@ -367,6 +369,7 @@ def _stage_cut(run_id: str) -> None:
 
     asset = read_json(stage_path(run_id, "media"), MediaAsset)
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
+    plan = read_json(stage_path(run_id, "edit_plan"), EditPlan)
     out_dir = run_dir(run_id) / "clips_raw"
     raw_path = stage_path(run_id, "raw_clips")
     raw: dict[str, Path] = _load_path_map(raw_path) if raw_path.exists() else {}
@@ -378,8 +381,17 @@ def _stage_cut(run_id: str) -> None:
         if existing.exists():
             raw[clip.id] = existing
             continue
+        # clip.start/clip.end are CLEAN-timeline coordinates (select-clips
+        # scored the declutter'd transcript) -- map back to one-or-more
+        # SOURCE-timeline ranges before cutting. With the identity plan
+        # (declutter's default "off"), this always degenerates to a single
+        # range equal to (clip.start, clip.end), unchanged from before.
+        ranges = timeline_.source_ranges_for(plan, clip.start, clip.end)
+        if not ranges:
+            failures.append(f"{clip.id}: maps to zero source ranges (fully inside a removed span?)")
+            continue
         try:
-            raw[clip.id] = cutter.cut_clip(Path(asset.local_path), clip, out_dir)
+            raw[clip.id] = cutter.cut_ranges(Path(asset.local_path), ranges, out_dir / f"{clip.id}.mp4")
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{clip.id}: {exc}")
             continue

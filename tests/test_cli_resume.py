@@ -311,16 +311,19 @@ def test_partial_cut_failure_preserves_completed_clips(monkeypatch, tmp_path, sa
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
     assert len(clips) >= 2, "need at least 2 clips for this test to be meaningful"
 
-    real_cut_clip = cutter.cut_clip
+    # _stage_cut calls cutter.cut_ranges directly (not cut_clip) since Step 4
+    # -- patch that instead. out_path is the last positional arg, so the
+    # clip id is recovered from its stem.
+    real_cut_ranges = cutter.cut_ranges
     call_log: list[str] = []
 
-    def flaky_cut_clip(source, clip, out_dir):
-        call_log.append(clip.id)
-        if clip.id == clips[1].id:
+    def flaky_cut_ranges(source, ranges, out_path, fade_ms=cutter.DEFAULT_FADE_MS):
+        call_log.append(out_path.stem)
+        if out_path.stem == clips[1].id:
             raise RuntimeError("simulated ffmpeg failure")
-        return real_cut_clip(source, clip, out_dir)
+        return real_cut_ranges(source, ranges, out_path, fade_ms=fade_ms)
 
-    monkeypatch.setattr(cutter, "cut_clip", flaky_cut_clip)
+    monkeypatch.setattr(cutter, "cut_ranges", flaky_cut_ranges)
     first_cut = runner.invoke(cli.app, ["cut", run_id])
     assert first_cut.exit_code == 1
 
@@ -330,11 +333,11 @@ def test_partial_cut_failure_preserves_completed_clips(monkeypatch, tmp_path, sa
 
     call_log.clear()
 
-    def logging_cut_clip(source, clip, out_dir):
-        call_log.append(clip.id)
-        return real_cut_clip(source, clip, out_dir)
+    def logging_cut_ranges(source, ranges, out_path, fade_ms=cutter.DEFAULT_FADE_MS):
+        call_log.append(out_path.stem)
+        return real_cut_ranges(source, ranges, out_path, fade_ms=fade_ms)
 
-    monkeypatch.setattr(cutter, "cut_clip", logging_cut_clip)
+    monkeypatch.setattr(cutter, "cut_ranges", logging_cut_ranges)
     second_cut = runner.invoke(cli.app, ["cut", run_id])
     assert second_cut.exit_code == 0, second_cut.output
     assert call_log == [clips[1].id]  # only the previously-failed clip was retried
