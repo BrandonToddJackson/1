@@ -11,7 +11,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+_EPS = 1e-6
 
 Platform = Literal["linkedin", "x", "threads", "instagram", "shorts", "newsletter"]
 
@@ -34,6 +36,10 @@ class Word(BaseModel):
     start: float
     end: float
     confidence: Optional[float] = None
+    # Set only when a diarization backend ran (transcribe.py); None means
+    # "unknown/not diarized" -- distinct from the segment-level default
+    # single-speaker assignment below, which is always populated.
+    speaker: Optional[str] = None
 
 
 class TranscriptSegment(BaseModel):
@@ -42,8 +48,19 @@ class TranscriptSegment(BaseModel):
     end: float
     text: str
     words: list[Word] = Field(default_factory=list)
-    # No diarization in v1 -- always the single default speaker.
+    # Default single-speaker assignment when no diarization backend ran.
     speaker: str = "SPEAKER_00"
+
+
+class AudioEvent(BaseModel):
+    """A non-speech audio event tagged by a diarization-capable transcribe
+    backend (e.g. ElevenLabs Scribe's laughter/applause/sigh tags). Used by
+    declutter.py to protect a "dead air" span that actually contains
+    laughter from being treated as silence to cut."""
+
+    type: str
+    start: float
+    end: float
 
 
 class Transcript(BaseModel):
@@ -53,6 +70,11 @@ class Transcript(BaseModel):
     duration: float
     segments: list[TranscriptSegment] = Field(default_factory=list)
     model: str = "faster-whisper-base"
+    # All default to the pre-diarization shape so a transcript.json written
+    # before these fields existed still validates unchanged.
+    speakers: list[str] = Field(default_factory=lambda: ["SPEAKER_00"])
+    diarization: Literal["none", "pyannote", "elevenlabs"] = "none"
+    audio_events: list[AudioEvent] = Field(default_factory=list)
 
     def full_text(self) -> str:
         return " ".join(seg.text.strip() for seg in self.segments if seg.text.strip())
@@ -95,6 +117,11 @@ class MediaAsset(BaseModel):
     local_path: str
     duration: float = 0.0
     title: Optional[str] = None
+    # Set by the enhance stage (audio.py) when it actually ran a filter
+    # chain; None in identity mode (enhance disabled) or on assets from
+    # before this stage existed -- both mean "local_path is untouched".
+    enhanced_from: Optional[str] = None
+    loudness_lufs: Optional[float] = None
 
 
 class PipelineRun(BaseModel):
@@ -157,3 +184,86 @@ class PublishResult(BaseModel):
     method: Literal["outbox", "ayrshare", "blotato"]
     location: str  # local path, or remote post id/url
     status: Literal["ready", "published", "failed"] = "ready"
+
+
+EditAction = Literal["keep", "remove"]
+RemovalReason = Literal["filler", "dead_air", "retake", "false_start", "repetition", "tangent", "manual"]
+
+
+class EditDecision(BaseModel):
+    start: float
+    end: float
+    action: EditAction
+    reason: Optional[RemovalReason] = None  # None for "keep"
+    text: str = ""  # words spanned, for human review
+    confidence: float = 1.0
+
+
+class EditPlan(BaseModel):
+    """A declutter.py output: the whole source's timeline as an ordered,
+    contiguous sequence of keep/remove decisions -- an EDL. pipeline/
+    timeline.py's mapping functions assume the invariant this model
+    validates: decisions are sorted, non-overlapping, and span exactly
+    [0, source_duration). "Disabled" is represented as a single "keep"
+    decision spanning the whole source (method="identity"), never as an
+    empty/missing plan -- see cli.py's identity-artifact convention."""
+
+    run_id: str
+    source_duration: float
+    decisions: list[EditDecision] = Field(default_factory=list)
+    method: Literal["identity", "heuristic", "llm"] = "identity"
+    level: Literal["off", "light", "standard", "aggressive"] = "off"
+
+    @model_validator(mode="after")
+    def _validate_contiguous(self) -> "EditPlan":
+        if not self.decisions:
+            if self.source_duration > _EPS:
+                raise ValueError("EditPlan has no decisions but source_duration > 0")
+            return self
+        ordered = sorted(self.decisions, key=lambda d: d.start)
+        if abs(ordered[0].start) > _EPS:
+            raise ValueError(f"EditPlan decisions must start at 0, got {ordered[0].start}")
+        if abs(ordered[-1].end - self.source_duration) > _EPS:
+            raise ValueError(
+                f"EditPlan decisions must end at source_duration ({self.source_duration}), got {ordered[-1].end}"
+            )
+        for a, b in zip(ordered, ordered[1:]):
+            if abs(a.end - b.start) > _EPS:
+                raise ValueError(f"EditPlan decisions must be contiguous: gap/overlap between {a.end} and {b.start}")
+        for d in ordered:
+            if d.end < d.start - _EPS:
+                raise ValueError(f"EditDecision end ({d.end}) is before start ({d.start})")
+        self.decisions = ordered
+        return self
+
+    def keep_ranges(self) -> list[tuple[float, float]]:
+        return [(d.start, d.end) for d in self.decisions if d.action == "keep"]
+
+    @property
+    def clean_duration(self) -> float:
+        return round(sum(d.end - d.start for d in self.decisions if d.action == "keep"), 3)
+
+    @property
+    def removed_seconds(self) -> float:
+        return round(sum(d.end - d.start for d in self.decisions if d.action == "remove"), 3)
+
+
+class GraphicsBeat(BaseModel):
+    """One motion-graphics card, drawn from graphics/catalog.json's fixed
+    composition list. `start`/`duration` are clip-relative seconds,
+    resolved by graphics.py snapping `anchor_word` to the nearest matching
+    transcript Word -- the LLM never places timestamps directly."""
+
+    composition: str
+    variables: dict[str, str] = Field(default_factory=dict)
+    anchor_word: str = ""
+    start: float = 0.0
+    duration: float = 0.0  # filled from the catalog entry, never LLM-supplied
+    reason: str = ""
+
+
+class GraphicsPlan(BaseModel):
+    clip_id: str
+    beats: list[GraphicsBeat] = Field(default_factory=list)
+    method: Literal["skipped", "llm"] = "skipped"
+    skipped_reason: Optional[str] = None

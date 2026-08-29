@@ -1,5 +1,10 @@
 from pipeline.schemas import (
+    AudioEvent,
     Clip,
+    EditDecision,
+    EditPlan,
+    GraphicsBeat,
+    GraphicsPlan,
     Learnings,
     MediaAsset,
     PerformanceRecord,
@@ -131,3 +136,83 @@ def test_publish_result():
 def test_publish_result_blotato_method():
     r = PublishResult(platform="x", method="blotato", location="post-123", status="published")
     assert r.method == "blotato"
+
+
+def test_word_speaker_defaults_none():
+    w = Word(text="hi", start=0.0, end=0.5)
+    assert w.speaker is None
+
+
+def test_audio_event_roundtrip():
+    e = AudioEvent(type="laughter", start=1.0, end=2.5)
+    assert AudioEvent.model_validate_json(e.model_dump_json()) == e
+
+
+def test_transcript_diarization_defaults():
+    t = Transcript(run_id="r1", source_path="x.mp4", duration=10.0)
+    assert t.speakers == ["SPEAKER_00"]
+    assert t.diarization == "none"
+    assert t.audio_events == []
+
+
+def test_transcript_loads_json_without_diarization_fields():
+    # Simulates a transcript.json written before diarization support existed.
+    old_json = (
+        '{"run_id": "r1", "source_path": "x.mp4", "language": "en", '
+        '"duration": 10.0, "segments": [], "model": "faster-whisper-base"}'
+    )
+    t = Transcript.model_validate_json(old_json)
+    assert t.speakers == ["SPEAKER_00"]
+    assert t.diarization == "none"
+    assert t.audio_events == []
+
+
+def test_media_asset_enhance_fields_default_none():
+    m = MediaAsset(run_id="r1", source="video.mp4", local_path="/tmp/video.mp4")
+    assert m.enhanced_from is None
+    assert m.loudness_lufs is None
+
+
+def test_media_asset_loads_json_without_enhance_fields():
+    old_json = '{"run_id": "r1", "source": "x.mp4", "local_path": "/tmp/x.mp4"}'
+    m = MediaAsset.model_validate_json(old_json)
+    assert m.enhanced_from is None
+
+
+def test_edit_decision_defaults():
+    d = EditDecision(start=0.0, end=1.0, action="keep")
+    assert d.reason is None
+    assert d.confidence == 1.0
+    assert d.text == ""
+
+
+def test_edit_plan_identity_default_method():
+    plan = EditPlan(
+        run_id="r1", source_duration=5.0,
+        decisions=[EditDecision(start=0.0, end=5.0, action="keep")],
+    )
+    assert plan.method == "identity"
+    assert plan.level == "off"
+
+
+def test_graphics_beat_defaults():
+    beat = GraphicsBeat(composition="lower-third")
+    assert beat.variables == {}
+    assert beat.duration == 0.0
+
+
+def test_graphics_plan_default_skipped():
+    plan = GraphicsPlan(clip_id="clip-01")
+    assert plan.method == "skipped"
+    assert plan.beats == []
+    assert plan.skipped_reason is None
+
+
+def test_graphics_plan_llm_method():
+    plan = GraphicsPlan(
+        clip_id="clip-01",
+        method="llm",
+        beats=[GraphicsBeat(composition="stat-card", variables={"value": "10x"}, anchor_word="ten")],
+    )
+    assert len(plan.beats) == 1
+    assert plan.beats[0].composition == "stat-card"
