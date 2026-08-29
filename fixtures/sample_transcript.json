@@ -1,0 +1,1059 @@
+{
+  "run_id": "fixture-run",
+  "source_path": "fixtures/sample_source.mp4",
+  "language": "en",
+  "duration": 65.08,
+  "segments": [
+    {
+      "id": 0,
+      "start": 0.0,
+      "end": 4.02,
+      "text": "welcome back to the show today we are talking about money.",
+      "words": [
+        {
+          "text": "welcome",
+          "start": 0.0,
+          "end": 0.32,
+          "confidence": 0.95
+        },
+        {
+          "text": "back",
+          "start": 0.37,
+          "end": 0.69,
+          "confidence": 0.95
+        },
+        {
+          "text": "to",
+          "start": 0.74,
+          "end": 1.06,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 1.11,
+          "end": 1.43,
+          "confidence": 0.95
+        },
+        {
+          "text": "show",
+          "start": 1.48,
+          "end": 1.8,
+          "confidence": 0.95
+        },
+        {
+          "text": "today",
+          "start": 1.85,
+          "end": 2.17,
+          "confidence": 0.95
+        },
+        {
+          "text": "we",
+          "start": 2.22,
+          "end": 2.54,
+          "confidence": 0.95
+        },
+        {
+          "text": "are",
+          "start": 2.59,
+          "end": 2.91,
+          "confidence": 0.95
+        },
+        {
+          "text": "talking",
+          "start": 2.96,
+          "end": 3.28,
+          "confidence": 0.95
+        },
+        {
+          "text": "about",
+          "start": 3.33,
+          "end": 3.65,
+          "confidence": 0.95
+        },
+        {
+          "text": "money.",
+          "start": 3.7,
+          "end": 4.02,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 1,
+      "start": 4.62,
+      "end": 8.27,
+      "text": "most people make a huge mistake with their first paycheck.",
+      "words": [
+        {
+          "text": "most",
+          "start": 4.62,
+          "end": 4.94,
+          "confidence": 0.95
+        },
+        {
+          "text": "people",
+          "start": 4.99,
+          "end": 5.31,
+          "confidence": 0.95
+        },
+        {
+          "text": "make",
+          "start": 5.36,
+          "end": 5.68,
+          "confidence": 0.95
+        },
+        {
+          "text": "a",
+          "start": 5.73,
+          "end": 6.05,
+          "confidence": 0.95
+        },
+        {
+          "text": "huge",
+          "start": 6.1,
+          "end": 6.42,
+          "confidence": 0.95
+        },
+        {
+          "text": "mistake",
+          "start": 6.47,
+          "end": 6.79,
+          "confidence": 0.95
+        },
+        {
+          "text": "with",
+          "start": 6.84,
+          "end": 7.16,
+          "confidence": 0.95
+        },
+        {
+          "text": "their",
+          "start": 7.21,
+          "end": 7.53,
+          "confidence": 0.95
+        },
+        {
+          "text": "first",
+          "start": 7.58,
+          "end": 7.9,
+          "confidence": 0.95
+        },
+        {
+          "text": "paycheck.",
+          "start": 7.95,
+          "end": 8.27,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 2,
+      "start": 8.87,
+      "end": 12.15,
+      "text": "the biggest mistake is spending everything before saving anything.",
+      "words": [
+        {
+          "text": "the",
+          "start": 8.87,
+          "end": 9.19,
+          "confidence": 0.95
+        },
+        {
+          "text": "biggest",
+          "start": 9.24,
+          "end": 9.56,
+          "confidence": 0.95
+        },
+        {
+          "text": "mistake",
+          "start": 9.61,
+          "end": 9.93,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 9.98,
+          "end": 10.3,
+          "confidence": 0.95
+        },
+        {
+          "text": "spending",
+          "start": 10.35,
+          "end": 10.67,
+          "confidence": 0.95
+        },
+        {
+          "text": "everything",
+          "start": 10.72,
+          "end": 11.04,
+          "confidence": 0.95
+        },
+        {
+          "text": "before",
+          "start": 11.09,
+          "end": 11.41,
+          "confidence": 0.95
+        },
+        {
+          "text": "saving",
+          "start": 11.46,
+          "end": 11.78,
+          "confidence": 0.95
+        },
+        {
+          "text": "anything.",
+          "start": 11.83,
+          "end": 12.15,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 3,
+      "start": 12.75,
+      "end": 16.4,
+      "text": "here is the secret nobody tells you about compound interest.",
+      "words": [
+        {
+          "text": "here",
+          "start": 12.75,
+          "end": 13.07,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 13.12,
+          "end": 13.44,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 13.49,
+          "end": 13.81,
+          "confidence": 0.95
+        },
+        {
+          "text": "secret",
+          "start": 13.86,
+          "end": 14.18,
+          "confidence": 0.95
+        },
+        {
+          "text": "nobody",
+          "start": 14.23,
+          "end": 14.55,
+          "confidence": 0.95
+        },
+        {
+          "text": "tells",
+          "start": 14.6,
+          "end": 14.92,
+          "confidence": 0.95
+        },
+        {
+          "text": "you",
+          "start": 14.97,
+          "end": 15.29,
+          "confidence": 0.95
+        },
+        {
+          "text": "about",
+          "start": 15.34,
+          "end": 15.66,
+          "confidence": 0.95
+        },
+        {
+          "text": "compound",
+          "start": 15.71,
+          "end": 16.03,
+          "confidence": 0.95
+        },
+        {
+          "text": "interest.",
+          "start": 16.08,
+          "end": 16.4,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 4,
+      "start": 17.0,
+      "end": 21.02,
+      "text": "if you start early even small amounts grow into something huge.",
+      "words": [
+        {
+          "text": "if",
+          "start": 17.0,
+          "end": 17.32,
+          "confidence": 0.95
+        },
+        {
+          "text": "you",
+          "start": 17.37,
+          "end": 17.69,
+          "confidence": 0.95
+        },
+        {
+          "text": "start",
+          "start": 17.74,
+          "end": 18.06,
+          "confidence": 0.95
+        },
+        {
+          "text": "early",
+          "start": 18.11,
+          "end": 18.43,
+          "confidence": 0.95
+        },
+        {
+          "text": "even",
+          "start": 18.48,
+          "end": 18.8,
+          "confidence": 0.95
+        },
+        {
+          "text": "small",
+          "start": 18.85,
+          "end": 19.17,
+          "confidence": 0.95
+        },
+        {
+          "text": "amounts",
+          "start": 19.22,
+          "end": 19.54,
+          "confidence": 0.95
+        },
+        {
+          "text": "grow",
+          "start": 19.59,
+          "end": 19.91,
+          "confidence": 0.95
+        },
+        {
+          "text": "into",
+          "start": 19.96,
+          "end": 20.28,
+          "confidence": 0.95
+        },
+        {
+          "text": "something",
+          "start": 20.33,
+          "end": 20.65,
+          "confidence": 0.95
+        },
+        {
+          "text": "huge.",
+          "start": 20.7,
+          "end": 21.02,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 5,
+      "start": 21.62,
+      "end": 26.01,
+      "text": "so why does nobody teach this in school it is honestly shocking.",
+      "words": [
+        {
+          "text": "so",
+          "start": 21.62,
+          "end": 21.94,
+          "confidence": 0.95
+        },
+        {
+          "text": "why",
+          "start": 21.99,
+          "end": 22.31,
+          "confidence": 0.95
+        },
+        {
+          "text": "does",
+          "start": 22.36,
+          "end": 22.68,
+          "confidence": 0.95
+        },
+        {
+          "text": "nobody",
+          "start": 22.73,
+          "end": 23.05,
+          "confidence": 0.95
+        },
+        {
+          "text": "teach",
+          "start": 23.1,
+          "end": 23.42,
+          "confidence": 0.95
+        },
+        {
+          "text": "this",
+          "start": 23.47,
+          "end": 23.79,
+          "confidence": 0.95
+        },
+        {
+          "text": "in",
+          "start": 23.84,
+          "end": 24.16,
+          "confidence": 0.95
+        },
+        {
+          "text": "school",
+          "start": 24.21,
+          "end": 24.53,
+          "confidence": 0.95
+        },
+        {
+          "text": "it",
+          "start": 24.58,
+          "end": 24.9,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 24.95,
+          "end": 25.27,
+          "confidence": 0.95
+        },
+        {
+          "text": "honestly",
+          "start": 25.32,
+          "end": 25.64,
+          "confidence": 0.95
+        },
+        {
+          "text": "shocking.",
+          "start": 25.69,
+          "end": 26.01,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 6,
+      "start": 26.61,
+      "end": 30.63,
+      "text": "the real reason is schools focus on theory instead of practice.",
+      "words": [
+        {
+          "text": "the",
+          "start": 26.61,
+          "end": 26.93,
+          "confidence": 0.95
+        },
+        {
+          "text": "real",
+          "start": 26.98,
+          "end": 27.3,
+          "confidence": 0.95
+        },
+        {
+          "text": "reason",
+          "start": 27.35,
+          "end": 27.67,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 27.72,
+          "end": 28.04,
+          "confidence": 0.95
+        },
+        {
+          "text": "schools",
+          "start": 28.09,
+          "end": 28.41,
+          "confidence": 0.95
+        },
+        {
+          "text": "focus",
+          "start": 28.46,
+          "end": 28.78,
+          "confidence": 0.95
+        },
+        {
+          "text": "on",
+          "start": 28.83,
+          "end": 29.15,
+          "confidence": 0.95
+        },
+        {
+          "text": "theory",
+          "start": 29.2,
+          "end": 29.52,
+          "confidence": 0.95
+        },
+        {
+          "text": "instead",
+          "start": 29.57,
+          "end": 29.89,
+          "confidence": 0.95
+        },
+        {
+          "text": "of",
+          "start": 29.94,
+          "end": 30.26,
+          "confidence": 0.95
+        },
+        {
+          "text": "practice.",
+          "start": 30.31,
+          "end": 30.63,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 7,
+      "start": 31.23,
+      "end": 34.88,
+      "text": "now let's talk about something totally different for a minute.",
+      "words": [
+        {
+          "text": "now",
+          "start": 31.23,
+          "end": 31.55,
+          "confidence": 0.95
+        },
+        {
+          "text": "let's",
+          "start": 31.6,
+          "end": 31.92,
+          "confidence": 0.95
+        },
+        {
+          "text": "talk",
+          "start": 31.97,
+          "end": 32.29,
+          "confidence": 0.95
+        },
+        {
+          "text": "about",
+          "start": 32.34,
+          "end": 32.66,
+          "confidence": 0.95
+        },
+        {
+          "text": "something",
+          "start": 32.71,
+          "end": 33.03,
+          "confidence": 0.95
+        },
+        {
+          "text": "totally",
+          "start": 33.08,
+          "end": 33.4,
+          "confidence": 0.95
+        },
+        {
+          "text": "different",
+          "start": 33.45,
+          "end": 33.77,
+          "confidence": 0.95
+        },
+        {
+          "text": "for",
+          "start": 33.82,
+          "end": 34.14,
+          "confidence": 0.95
+        },
+        {
+          "text": "a",
+          "start": 34.19,
+          "end": 34.51,
+          "confidence": 0.95
+        },
+        {
+          "text": "minute.",
+          "start": 34.56,
+          "end": 34.88,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 8,
+      "start": 35.48,
+      "end": 39.5,
+      "text": "yesterday i went to the grocery store and bought some vegetables.",
+      "words": [
+        {
+          "text": "yesterday",
+          "start": 35.48,
+          "end": 35.8,
+          "confidence": 0.95
+        },
+        {
+          "text": "i",
+          "start": 35.85,
+          "end": 36.17,
+          "confidence": 0.95
+        },
+        {
+          "text": "went",
+          "start": 36.22,
+          "end": 36.54,
+          "confidence": 0.95
+        },
+        {
+          "text": "to",
+          "start": 36.59,
+          "end": 36.91,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 36.96,
+          "end": 37.28,
+          "confidence": 0.95
+        },
+        {
+          "text": "grocery",
+          "start": 37.33,
+          "end": 37.65,
+          "confidence": 0.95
+        },
+        {
+          "text": "store",
+          "start": 37.7,
+          "end": 38.02,
+          "confidence": 0.95
+        },
+        {
+          "text": "and",
+          "start": 38.07,
+          "end": 38.39,
+          "confidence": 0.95
+        },
+        {
+          "text": "bought",
+          "start": 38.44,
+          "end": 38.76,
+          "confidence": 0.95
+        },
+        {
+          "text": "some",
+          "start": 38.81,
+          "end": 39.13,
+          "confidence": 0.95
+        },
+        {
+          "text": "vegetables.",
+          "start": 39.18,
+          "end": 39.5,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 9,
+      "start": 40.1,
+      "end": 44.49,
+      "text": "the weather has been pretty mild lately which is nice for walking.",
+      "words": [
+        {
+          "text": "the",
+          "start": 40.1,
+          "end": 40.42,
+          "confidence": 0.95
+        },
+        {
+          "text": "weather",
+          "start": 40.47,
+          "end": 40.79,
+          "confidence": 0.95
+        },
+        {
+          "text": "has",
+          "start": 40.84,
+          "end": 41.16,
+          "confidence": 0.95
+        },
+        {
+          "text": "been",
+          "start": 41.21,
+          "end": 41.53,
+          "confidence": 0.95
+        },
+        {
+          "text": "pretty",
+          "start": 41.58,
+          "end": 41.9,
+          "confidence": 0.95
+        },
+        {
+          "text": "mild",
+          "start": 41.95,
+          "end": 42.27,
+          "confidence": 0.95
+        },
+        {
+          "text": "lately",
+          "start": 42.32,
+          "end": 42.64,
+          "confidence": 0.95
+        },
+        {
+          "text": "which",
+          "start": 42.69,
+          "end": 43.01,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 43.06,
+          "end": 43.38,
+          "confidence": 0.95
+        },
+        {
+          "text": "nice",
+          "start": 43.43,
+          "end": 43.75,
+          "confidence": 0.95
+        },
+        {
+          "text": "for",
+          "start": 43.8,
+          "end": 44.12,
+          "confidence": 0.95
+        },
+        {
+          "text": "walking.",
+          "start": 44.17,
+          "end": 44.49,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 10,
+      "start": 45.09,
+      "end": 49.48,
+      "text": "anyway back to the important part the key lesson here is simple.",
+      "words": [
+        {
+          "text": "anyway",
+          "start": 45.09,
+          "end": 45.41,
+          "confidence": 0.95
+        },
+        {
+          "text": "back",
+          "start": 45.46,
+          "end": 45.78,
+          "confidence": 0.95
+        },
+        {
+          "text": "to",
+          "start": 45.83,
+          "end": 46.15,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 46.2,
+          "end": 46.52,
+          "confidence": 0.95
+        },
+        {
+          "text": "important",
+          "start": 46.57,
+          "end": 46.89,
+          "confidence": 0.95
+        },
+        {
+          "text": "part",
+          "start": 46.94,
+          "end": 47.26,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 47.31,
+          "end": 47.63,
+          "confidence": 0.95
+        },
+        {
+          "text": "key",
+          "start": 47.68,
+          "end": 48.0,
+          "confidence": 0.95
+        },
+        {
+          "text": "lesson",
+          "start": 48.05,
+          "end": 48.37,
+          "confidence": 0.95
+        },
+        {
+          "text": "here",
+          "start": 48.42,
+          "end": 48.74,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 48.79,
+          "end": 49.11,
+          "confidence": 0.95
+        },
+        {
+          "text": "simple.",
+          "start": 49.16,
+          "end": 49.48,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 11,
+      "start": 50.08,
+      "end": 54.1,
+      "text": "start investing today even a small amount because time matters most.",
+      "words": [
+        {
+          "text": "start",
+          "start": 50.08,
+          "end": 50.4,
+          "confidence": 0.95
+        },
+        {
+          "text": "investing",
+          "start": 50.45,
+          "end": 50.77,
+          "confidence": 0.95
+        },
+        {
+          "text": "today",
+          "start": 50.82,
+          "end": 51.14,
+          "confidence": 0.95
+        },
+        {
+          "text": "even",
+          "start": 51.19,
+          "end": 51.51,
+          "confidence": 0.95
+        },
+        {
+          "text": "a",
+          "start": 51.56,
+          "end": 51.88,
+          "confidence": 0.95
+        },
+        {
+          "text": "small",
+          "start": 51.93,
+          "end": 52.25,
+          "confidence": 0.95
+        },
+        {
+          "text": "amount",
+          "start": 52.3,
+          "end": 52.62,
+          "confidence": 0.95
+        },
+        {
+          "text": "because",
+          "start": 52.67,
+          "end": 52.99,
+          "confidence": 0.95
+        },
+        {
+          "text": "time",
+          "start": 53.04,
+          "end": 53.36,
+          "confidence": 0.95
+        },
+        {
+          "text": "matters",
+          "start": 53.41,
+          "end": 53.73,
+          "confidence": 0.95
+        },
+        {
+          "text": "most.",
+          "start": 53.78,
+          "end": 54.1,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 12,
+      "start": 54.7,
+      "end": 59.09,
+      "text": "that is genuinely the best advice i can give you this year.",
+      "words": [
+        {
+          "text": "that",
+          "start": 54.7,
+          "end": 55.02,
+          "confidence": 0.95
+        },
+        {
+          "text": "is",
+          "start": 55.07,
+          "end": 55.39,
+          "confidence": 0.95
+        },
+        {
+          "text": "genuinely",
+          "start": 55.44,
+          "end": 55.76,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 55.81,
+          "end": 56.13,
+          "confidence": 0.95
+        },
+        {
+          "text": "best",
+          "start": 56.18,
+          "end": 56.5,
+          "confidence": 0.95
+        },
+        {
+          "text": "advice",
+          "start": 56.55,
+          "end": 56.87,
+          "confidence": 0.95
+        },
+        {
+          "text": "i",
+          "start": 56.92,
+          "end": 57.24,
+          "confidence": 0.95
+        },
+        {
+          "text": "can",
+          "start": 57.29,
+          "end": 57.61,
+          "confidence": 0.95
+        },
+        {
+          "text": "give",
+          "start": 57.66,
+          "end": 57.98,
+          "confidence": 0.95
+        },
+        {
+          "text": "you",
+          "start": 58.03,
+          "end": 58.35,
+          "confidence": 0.95
+        },
+        {
+          "text": "this",
+          "start": 58.4,
+          "end": 58.72,
+          "confidence": 0.95
+        },
+        {
+          "text": "year.",
+          "start": 58.77,
+          "end": 59.09,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "id": 13,
+      "start": 59.69,
+      "end": 64.08,
+      "text": "thanks for watching and i will see you in the next episode.",
+      "words": [
+        {
+          "text": "thanks",
+          "start": 59.69,
+          "end": 60.01,
+          "confidence": 0.95
+        },
+        {
+          "text": "for",
+          "start": 60.06,
+          "end": 60.38,
+          "confidence": 0.95
+        },
+        {
+          "text": "watching",
+          "start": 60.43,
+          "end": 60.75,
+          "confidence": 0.95
+        },
+        {
+          "text": "and",
+          "start": 60.8,
+          "end": 61.12,
+          "confidence": 0.95
+        },
+        {
+          "text": "i",
+          "start": 61.17,
+          "end": 61.49,
+          "confidence": 0.95
+        },
+        {
+          "text": "will",
+          "start": 61.54,
+          "end": 61.86,
+          "confidence": 0.95
+        },
+        {
+          "text": "see",
+          "start": 61.91,
+          "end": 62.23,
+          "confidence": 0.95
+        },
+        {
+          "text": "you",
+          "start": 62.28,
+          "end": 62.6,
+          "confidence": 0.95
+        },
+        {
+          "text": "in",
+          "start": 62.65,
+          "end": 62.97,
+          "confidence": 0.95
+        },
+        {
+          "text": "the",
+          "start": 63.02,
+          "end": 63.34,
+          "confidence": 0.95
+        },
+        {
+          "text": "next",
+          "start": 63.39,
+          "end": 63.71,
+          "confidence": 0.95
+        },
+        {
+          "text": "episode.",
+          "start": 63.76,
+          "end": 64.08,
+          "confidence": 0.95
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    }
+  ],
+  "model": "faster-whisper-base"
+}
