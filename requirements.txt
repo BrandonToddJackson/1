@@ -1,0 +1,9 @@
+typer>=0.12
+pydantic>=2.6
+python-dotenv>=1.0
+rich>=13.7
+yt-dlp>=2024.8.6
+faster-whisper>=1.0
+
+# Optional, for the LLM-enhanced path (dev/test only needs pytest below):
+# pip install -r requirements.txt -e ".[llm]"
