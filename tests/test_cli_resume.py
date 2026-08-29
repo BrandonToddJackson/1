@@ -6,6 +6,7 @@ Step 8)."""
 
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -143,7 +144,7 @@ def test_select_clips_rerun_invalidates_downstream(monkeypatch, tmp_path, sample
     assert reselect.exit_code == 0, reselect.output
 
     run = load_run_state(run_id)
-    assert run.stages_completed == ["ingest", "transcribe", "select_clips"]
+    assert run.stages_completed == ["ingest", "enhance", "transcribe", "select_clips"]
 
     base = run_dir(run_id)
     for stale in ("raw_clips.json", "captioned_clips.json", "posts.json", "publish_results.json", "clips_raw", "clips_captioned", "outbox"):
@@ -160,6 +161,7 @@ def test_cut_without_clips_reports_clear_error(monkeypatch, tmp_path, sample_vid
 
     run_id = "no-clips-yet"
     assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
     assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
 
     result = runner.invoke(cli.app, ["cut", run_id])
@@ -298,6 +300,7 @@ def test_partial_cut_failure_preserves_completed_clips(monkeypatch, tmp_path, sa
 
     run_id = "cut-partial"
     assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
     assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
     # A small --max-len forces the 3-sentence fake transcript to split into
     # multiple clips instead of one window covering everything.
@@ -382,9 +385,105 @@ def test_stage_functions_are_callable_directly(monkeypatch, tmp_path, sample_vid
 
     run_id = "direct-call"
     cli._stage_ingest(str(sample_video), run_id)
+    cli._stage_enhance(run_id, enabled=False)
     cli._stage_transcribe(run_id)
     cli._stage_select_clips(run_id, max_clips=2, min_len=1.0, max_len=90.0)
 
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
     assert clips
     assert len(clips) <= 2
+
+
+# --------------------------------------------------------------------------
+# 14. enhance stage: identity artifact when disabled, transcribe reads from
+#     enhanced_media.json (not media.json), --no-enhance wires through `run`
+# --------------------------------------------------------------------------
+
+def test_enhance_off_writes_identity_artifact_pointing_at_source(monkeypatch, tmp_path, sample_video):
+    from pipeline.schemas import MediaAsset
+    from pipeline.storage import read_json
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_id = "enhance-off"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["enhance", run_id, "--off"])
+    assert result.exit_code == 0, result.output
+
+    original = read_json(stage_path(run_id, "media"), MediaAsset)
+    enhanced = read_json(stage_path(run_id, "enhanced_media"), MediaAsset)
+    assert enhanced.local_path == original.local_path
+    assert enhanced.enhanced_from is None
+    assert enhanced.loudness_lufs is None
+
+
+def test_enhance_default_produces_denoised_media_with_loudness(monkeypatch, tmp_path, sample_video):
+    from pipeline.schemas import MediaAsset
+    from pipeline.storage import read_json
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_id = "enhance-on"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["enhance", run_id])
+    assert result.exit_code == 0, result.output
+
+    original = read_json(stage_path(run_id, "media"), MediaAsset)
+    enhanced = read_json(stage_path(run_id, "enhanced_media"), MediaAsset)
+    assert enhanced.local_path != original.local_path
+    assert enhanced.enhanced_from == original.local_path
+    assert Path(enhanced.local_path).exists()
+
+
+def test_transcribe_requires_enhanced_media_not_media(monkeypatch, tmp_path, sample_video):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "needs-enhance-first"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["transcribe", run_id])
+    assert result.exit_code == 1
+    assert "enhanced_media.json" in result.output
+    assert "enhance" in result.output
+
+
+def test_run_no_enhance_flag_skips_enhancement_end_to_end(monkeypatch, tmp_path, sample_video):
+    from pipeline.schemas import MediaAsset
+    from pipeline.storage import read_json
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "no-enhance-run"
+    result = runner.invoke(
+        cli.app, ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--no-enhance"],
+    )
+    assert result.exit_code == 0, result.output
+
+    run = load_run_state(run_id)
+    assert "enhance" in run.stages_completed
+    assert run.params["enhance"] is False
+
+    original = read_json(stage_path(run_id, "media"), MediaAsset)
+    enhanced = read_json(stage_path(run_id, "enhanced_media"), MediaAsset)
+    assert enhanced.local_path == original.local_path
+
+
+def test_select_clips_rerun_does_not_invalidate_enhance(monkeypatch, tmp_path, sample_video):
+    """select-clips invalidates from itself onward -- enhance/transcribe,
+    which run BEFORE it, must survive untouched."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "reselect-keeps-enhance"
+    first = runner.invoke(cli.app, ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--max-clips", "2"])
+    assert first.exit_code == 0, first.output
+
+    enhanced_mtime_before = stage_path(run_id, "enhanced_media").stat().st_mtime
+
+    reselect = runner.invoke(cli.app, ["select-clips", run_id, "--min-len", "2", "--max-clips", "1"])
+    assert reselect.exit_code == 0, reselect.output
+
+    assert stage_path(run_id, "enhanced_media").exists()
+    assert stage_path(run_id, "enhanced_media").stat().st_mtime == enhanced_mtime_before

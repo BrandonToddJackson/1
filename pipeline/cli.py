@@ -32,9 +32,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pipeline import analyst, captioner, clip_selector, cutter, ingest, publisher, repurposer
+from pipeline import analyst, audio, captioner, clip_selector, cutter, ingest, publisher, repurposer
 from pipeline import transcribe as transcribe_
-from pipeline.config import new_run_id
+from pipeline.config import get_settings, new_run_id
 from pipeline.schemas import (
     Clip,
     DEFAULT_PLATFORMS,
@@ -72,13 +72,16 @@ class PipelineError(RuntimeError):
     sees PipelineError from a real stage problem."""
 
 
-STAGE_ORDER: tuple[str, ...] = ("ingest", "transcribe", "select_clips", "cut", "caption", "repurpose", "publish")
+STAGE_ORDER: tuple[str, ...] = (
+    "ingest", "enhance", "transcribe", "select_clips", "cut", "caption", "repurpose", "publish",
+)
 
 # Artifacts (glob patterns relative to the run directory) each stage owns --
 # deleted whenever that stage or an earlier one is invalidated, so stale
 # output can never be mistaken for current.
 STAGE_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "ingest": ("media.json", "source.*"),
+    "enhance": ("enhanced_media.json", "enhanced.*"),
     "transcribe": ("transcript.json",),
     "select_clips": ("clips.json",),
     "cut": ("raw_clips.json", "clips_raw"),
@@ -89,7 +92,8 @@ STAGE_ARTIFACTS: dict[str, tuple[str, ...]] = {
 
 # Artifacts each stage requires from an earlier stage before it can run.
 STAGE_REQUIRES: dict[str, tuple[str, ...]] = {
-    "transcribe": ("media.json",),
+    "enhance": ("media.json",),
+    "transcribe": ("enhanced_media.json",),
     "select_clips": ("transcript.json",),
     "cut": ("media.json", "clips.json"),
     "caption": ("transcript.json", "clips.json", "raw_clips.json"),
@@ -99,6 +103,7 @@ STAGE_REQUIRES: dict[str, tuple[str, ...]] = {
 
 _PRODUCED_BY: dict[str, str] = {
     "media.json": "ingest",
+    "enhanced_media.json": "enhance",
     "transcript.json": "transcribe",
     "clips.json": "select-clips",
     "raw_clips.json": "cut",
@@ -109,6 +114,7 @@ _PRODUCED_BY: dict[str, str] = {
 # invalidates from here onward (with --force), not the whole pipeline.
 PARAM_AFFECTS: dict[str, str] = {
     "source": "ingest",
+    "enhance": "enhance",
     "max_clips": "select_clips",
     "min_len": "select_clips",
     "max_len": "select_clips",
@@ -199,12 +205,65 @@ def _stage_ingest(source: str, run_id: str) -> None:
     console.print(f"  source: {asset.local_path} ({asset.duration:.1f}s)")
 
 
+def _stage_enhance(run_id: str, enabled: bool = True) -> None:
+    """Denoise + normalize the source audio once, before transcribe (a
+    per-clip loudnorm would give every clip a different perceived volume,
+    and normalized/denoised audio measurably improves whisper accuracy for
+    everything downstream). Disabled is an identity artifact, not a missing
+    one -- enhanced_media.json always exists, pointing at the source as-is
+    when --no-enhance is passed, so `transcribe` never needs to branch on
+    whether enhancement ran."""
+    _require_stage_artifact(run_id, "enhance")
+    run = load_run_state(run_id)
+    _invalidate_from(run_id, run, "enhance")
+
+    asset = read_json(stage_path(run_id, "media"), MediaAsset)
+    settings = get_settings()
+
+    if not enabled:
+        console.print(f"[bold]enhance[/bold] run_id={run_id} (disabled, using source as-is)")
+        enhanced = asset.model_copy(update={"enhanced_from": None, "loudness_lufs": None})
+        write_json(stage_path(run_id, "enhanced_media"), enhanced)
+
+        run = load_run_state(run_id)
+        run.params["enhance"] = False
+        run.mark_done("enhance")
+        save_run_state(run)
+        return
+
+    console.print(f"[bold]enhance[/bold] run_id={run_id} (denoise + normalize)")
+    src_path = Path(asset.local_path)
+    out_path = run_dir(run_id) / f"enhanced{src_path.suffix or '.mp4'}"
+    try:
+        loudness = audio.enhance(
+            src_path, out_path,
+            target_lufs=settings.audio_target_lufs,
+            rnnoise_model_path=settings.rnnoise_model_path,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"enhance: {exc}") from exc
+
+    enhanced = asset.model_copy(update={
+        "local_path": str(out_path),
+        "enhanced_from": asset.local_path,
+        "loudness_lufs": loudness,
+    })
+    write_json(stage_path(run_id, "enhanced_media"), enhanced)
+
+    run = load_run_state(run_id)
+    run.params["enhance"] = True
+    run.mark_done("enhance")
+    save_run_state(run)
+    lufs_str = f"{loudness:.1f} LUFS" if loudness is not None else "unknown"
+    console.print(f"  {out_path.name} ({lufs_str})")
+
+
 def _stage_transcribe(run_id: str) -> None:
     _require_stage_artifact(run_id, "transcribe")
     run = load_run_state(run_id)
     _invalidate_from(run_id, run, "transcribe")
 
-    asset = read_json(stage_path(run_id, "media"), MediaAsset)
+    asset = read_json(stage_path(run_id, "enhanced_media"), MediaAsset)
     console.print(f"[bold]transcribe[/bold] run_id={run_id} (this downloads the whisper model on first use)")
 
     try:
@@ -399,6 +458,17 @@ def ingest_cmd(source: str, run_id: Optional[str] = None) -> None:
     console.print(f"run_id={run_id}")
 
 
+@app.command("enhance")
+def enhance_cmd(
+    run_id: str,
+    off: bool = typer.Option(False, "--off", help="Skip enhancement, use the source audio as-is"),
+) -> None:
+    try:
+        _stage_enhance(run_id, enabled=not off)
+    except PipelineError as exc:
+        _fail("enhance", exc)
+
+
 @app.command("transcribe")
 def transcribe_cmd(run_id: str) -> None:
     try:
@@ -495,6 +565,7 @@ def run_cmd(
     min_len: float = clip_selector.DEFAULT_MIN_LEN,
     max_len: float = clip_selector.DEFAULT_MAX_LEN,
     platforms: str = ",".join(DEFAULT_PLATFORMS),
+    no_enhance: bool = typer.Option(False, "--no-enhance", help="Skip audio enhancement, use the source as-is"),
     force: bool = typer.Option(False, "--force", help="Redo from the earliest stage affected by changed params"),
 ) -> None:
     """Runs every stage in order. Safe to re-run with the same --run-id:
@@ -505,6 +576,7 @@ def run_cmd(
     platform_tuple = _parse_platforms(platforms)  # fail fast on a typo before any stage (or run dir) exists
     requested_params = {
         "source": source,
+        "enhance": not no_enhance,
         "max_clips": max_clips,
         "min_len": min_len,
         "max_len": max_len,
@@ -539,6 +611,7 @@ def run_cmd(
 
     stage_fns = {
         "ingest": lambda: _stage_ingest(source, run_id),
+        "enhance": lambda: _stage_enhance(run_id, enabled=not no_enhance),
         "transcribe": lambda: _stage_transcribe(run_id),
         "select_clips": lambda: _stage_select_clips(run_id, max_clips, min_len, max_len),
         "cut": lambda: _stage_cut(run_id),

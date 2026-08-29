@@ -34,6 +34,21 @@ class Settings(BaseModel):
     # Blotato's API requires a per-platform accountId on every post; a bare
     # API key alone isn't enough to publish. {"x": "acct_123", "linkedin": "acct_456", ...}
     blotato_account_ids: dict[str, str] = Field(default_factory=dict)
+    # Audio enhancement (the `enhance` stage) -- zero-key by default.
+    audio_target_lufs: float = -16.0
+    # Opt-in deeper denoise: arnndn needs an external .rnnn model file ffmpeg
+    # doesn't ship. None (default) means afftdn (zero-key, no model needed).
+    rnnoise_model_path: Path | None = None
+
+
+def _parse_float(raw: str | None, default: float) -> float:
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        log.warning("expected a float, got %r; using default %s", raw, default)
+        return default
 
 
 def _parse_blotato_account_ids(raw: str | None) -> dict[str, str]:
@@ -66,6 +81,8 @@ def get_settings() -> Settings:
         ayrshare_api_key=os.environ.get("AYRSHARE_API_KEY") or None,
         blotato_api_key=os.environ.get("BLOTATO_API_KEY") or None,
         blotato_account_ids=_parse_blotato_account_ids(os.environ.get("BLOTATO_ACCOUNT_IDS")),
+        audio_target_lufs=_parse_float(os.environ.get("AUDIO_TARGET_LUFS"), -16.0),
+        rnnoise_model_path=(Path(p) if (p := os.environ.get("RNNOISE_MODEL_PATH")) else None),
     )
 
 
