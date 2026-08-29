@@ -201,6 +201,43 @@ def test_render_captioned_clip_with_apostrophe_in_path(tmp_path, sample_video):
     assert result.stat().st_size > 0
 
 
+def test_render_captioned_clip_karaoke_style_renders_through_libass(tmp_path, sample_video):
+    clip = Clip(id="clip-01", start=1.0, end=4.0, hook="h", topic="t", score=0.5)
+    raw_clip = cutter.cut_clip(sample_video, clip, tmp_path / "raw")
+    words = [Word(text="hello", start=1.2, end=1.6), Word(text="world.", start=1.7, end=2.1)]
+
+    out_path = tmp_path / "captioned" / "karaoke.mp4"
+    result = captioner.render_captioned_clip(raw_clip, words, out_path, offset=clip.start, style="karaoke")
+
+    assert result == out_path
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_captioned_clip_pop_style_renders_through_libass(tmp_path, sample_video):
+    clip = Clip(id="clip-01", start=1.0, end=4.0, hook="h", topic="t", score=0.5)
+    raw_clip = cutter.cut_clip(sample_video, clip, tmp_path / "raw")
+    words = [Word(text="hello", start=1.2, end=1.6), Word(text="world.", start=1.7, end=2.1)]
+
+    out_path = tmp_path / "captioned" / "pop.mp4"
+    result = captioner.render_captioned_clip(raw_clip, words, out_path, offset=clip.start, style="pop")
+
+    assert result == out_path
+    assert out_path.exists()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_captioned_clip_karaoke_passes_through_when_no_words(tmp_path, sample_video):
+    clip = Clip(id="clip-01", start=1.0, end=3.0, hook="h", topic="t", score=0.5)
+    raw_clip = cutter.cut_clip(sample_video, clip, tmp_path / "raw")
+
+    out_path = tmp_path / "captioned" / "karaoke-empty.mp4"
+    result = captioner.render_captioned_clip(raw_clip, [], out_path, offset=clip.start, style="karaoke")
+
+    assert result == out_path
+    assert out_path.exists()
+
+
 def test_cut_clip_failure_message_includes_ffmpeg_stderr(tmp_path):
     clip = Clip(id="clip-01", start=1.0, end=3.0, hook="h", topic="t", score=0.5)
     nonexistent_source = tmp_path / "does_not_exist.mp4"

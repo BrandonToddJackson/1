@@ -125,6 +125,7 @@ PARAM_AFFECTS: dict[str, str] = {
     "max_clips": "select_clips",
     "min_len": "select_clips",
     "max_len": "select_clips",
+    "caption_style": "caption",
     "platforms": "repurpose",
 }
 
@@ -406,9 +407,12 @@ def _stage_cut(run_id: str) -> None:
     console.print(f"[bold]cut[/bold] run_id={run_id}: {len(raw)} clip(s) cut")
 
 
-def _stage_caption(run_id: str) -> None:
+def _stage_caption(run_id: str, style: str = "plain") -> None:
     """Same resume-by-skipping-existing-output design as _stage_cut, and
-    for the same reason -- see its docstring."""
+    for the same reason -- see its docstring. Does not self-invalidate on a
+    style change -- that's handled once, up front, by run_cmd's standard
+    PARAM_AFFECTS/--force machinery (registered below), the same mechanism
+    every other tuning param already uses."""
     _require_stage_artifact(run_id, "caption")
 
     transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
@@ -432,7 +436,7 @@ def _stage_caption(run_id: str) -> None:
             continue
         clip_words = [w for w in all_words if w.start >= clip.start and w.end <= clip.end]
         try:
-            captioner.render_captioned_clip(raw[clip.id], clip_words, out_path, offset=clip.start)
+            captioner.render_captioned_clip(raw[clip.id], clip_words, out_path, offset=clip.start, style=style)
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{clip.id}: {exc}")
             continue
@@ -443,9 +447,10 @@ def _stage_caption(run_id: str) -> None:
         raise PipelineError("caption: " + "; ".join(failures))
 
     run = load_run_state(run_id)
+    run.params["caption_style"] = style
     run.mark_done("caption")
     save_run_state(run)
-    console.print(f"[bold]caption[/bold] run_id={run_id}: {len(captioned)} clip(s) captioned")
+    console.print(f"[bold]caption[/bold] run_id={run_id}: {len(captioned)} clip(s) captioned (style={style})")
 
 
 def _stage_repurpose(run_id: str, platforms: tuple[Platform, ...]) -> None:
@@ -567,9 +572,12 @@ def cut_cmd(run_id: str) -> None:
 
 
 @app.command("caption")
-def caption_cmd(run_id: str) -> None:
+def caption_cmd(
+    run_id: str,
+    style: str = typer.Option("plain", "--style", help="plain|karaoke|pop -- see pipeline/captioner.py"),
+) -> None:
     try:
-        _stage_caption(run_id)
+        _stage_caption(run_id, style=style)
     except PipelineError as exc:
         _fail("caption", exc)
 
@@ -639,6 +647,9 @@ def run_cmd(
         "--declutter-level",
         help="off|light|standard|aggressive -- see pipeline/declutter.py. Defaults to off (see its docstring).",
     ),
+    caption_style: str = typer.Option(
+        "plain", "--caption-style", help="plain|karaoke|pop -- see pipeline/captioner.py",
+    ),
     force: bool = typer.Option(False, "--force", help="Redo from the earliest stage affected by changed params"),
 ) -> None:
     """Runs every stage in order. Safe to re-run with the same --run-id:
@@ -654,6 +665,7 @@ def run_cmd(
         "max_clips": max_clips,
         "min_len": min_len,
         "max_len": max_len,
+        "caption_style": caption_style,
         "platforms": list(platform_tuple),
     }
 
@@ -690,7 +702,7 @@ def run_cmd(
         "declutter": lambda: _stage_declutter(run_id, level=declutter_level),
         "select_clips": lambda: _stage_select_clips(run_id, max_clips, min_len, max_len),
         "cut": lambda: _stage_cut(run_id),
-        "caption": lambda: _stage_caption(run_id),
+        "caption": lambda: _stage_caption(run_id, style=caption_style),
         "repurpose": lambda: _stage_repurpose(run_id, platform_tuple),
         "publish": lambda: _stage_publish(run_id),
     }
