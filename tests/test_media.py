@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from pipeline import captioner, cutter, ingest
+from pipeline import captioner, cutter, ingest, procutil
 from pipeline.schemas import Clip, Word
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
@@ -124,3 +124,90 @@ def test_render_captioned_clip_passes_through_when_no_words(tmp_path, sample_vid
 
     assert result == out_path
     assert out_path.exists()
+
+
+def test_format_srt_time_never_emits_1000_millis():
+    # Regression for the confirmed float-rounding carry bug: ordinary
+    # 2-decimal timestamps could produce "00:00:01,1000" (4-digit ms, no
+    # carry into seconds) via plain float subtraction.
+    assert captioner._format_srt_time(1.9999999999999998) == "00:00:02,000"
+    for hundredths in range(0, 10000):
+        t = hundredths / 100
+        formatted = captioner._format_srt_time(t)
+        millis_part = formatted.split(",")[1]
+        assert len(millis_part) == 3, f"t={t} produced malformed time {formatted!r}"
+
+
+def test_ytdlp_picks_printed_path_not_sidecar_glob(tmp_path, monkeypatch):
+    # Simulates leftovers a previous interrupted attempt / extra yt-dlp
+    # flags could leave behind -- the old glob+sort picked ".info.json"
+    # (alphabetically before ".mp4") over the real video.
+    (tmp_path / "source.info.json").write_text("{}")
+    (tmp_path / "source.mp4.part").write_bytes(b"partial")
+    real_video = tmp_path / "source.mp4"
+    real_video.write_bytes(b"real video bytes")
+
+    class FakeResult:
+        stdout = str(real_video) + "\n"
+
+    monkeypatch.setattr(ingest, "run_or_raise", lambda cmd, label: FakeResult())
+
+    result = ingest._download_with_ytdlp("https://example.com/video", tmp_path)
+    assert result == real_video
+
+
+def test_ytdlp_falls_back_to_glob_excluding_sidecars_when_print_empty(tmp_path, monkeypatch):
+    (tmp_path / "source.info.json").write_text("{}")
+    real_video = tmp_path / "source.mp4"
+    real_video.write_bytes(b"real video bytes")
+
+    class FakeResult:
+        stdout = ""
+
+    monkeypatch.setattr(ingest, "run_or_raise", lambda cmd, label: FakeResult())
+
+    result = ingest._download_with_ytdlp("https://example.com/video", tmp_path)
+    assert result == real_video
+
+
+def test_probe_media_missing_ffprobe_raises(monkeypatch, tmp_path):
+    def fake_run_or_raise(cmd, label):
+        raise procutil.MissingBinaryError("ffprobe not found")
+
+    monkeypatch.setattr(ingest, "run_or_raise", fake_run_or_raise)
+    with pytest.raises(procutil.MissingBinaryError):
+        ingest._probe_media(tmp_path / "video.mp4")
+
+
+def test_probe_media_unprobeable_file_returns_empty(monkeypatch, tmp_path):
+    def fake_run_or_raise(cmd, label):
+        raise procutil.SubprocessFailedError("could not probe")
+
+    monkeypatch.setattr(ingest, "run_or_raise", fake_run_or_raise)
+    assert ingest._probe_media(tmp_path / "video.mp4") == {}
+
+
+def test_render_captioned_clip_with_apostrophe_in_path(tmp_path, sample_video):
+    weird_dir = tmp_path / "o'brien"
+    weird_dir.mkdir()
+    clip = Clip(id="clip-01", start=1.0, end=3.0, hook="h", topic="t", score=0.5)
+    raw_clip = cutter.cut_clip(sample_video, clip, weird_dir / "raw")
+    words = [Word(text="hello", start=1.2, end=1.6), Word(text="world.", start=1.7, end=2.1)]
+
+    out_path = weird_dir / "captioned" / "clip-01.mp4"
+    result = captioner.render_captioned_clip(raw_clip, words, out_path, offset=clip.start)
+
+    assert result.exists()
+    assert result.stat().st_size > 0
+
+
+def test_cut_clip_failure_message_includes_ffmpeg_stderr(tmp_path):
+    clip = Clip(id="clip-01", start=1.0, end=3.0, hook="h", topic="t", score=0.5)
+    nonexistent_source = tmp_path / "does_not_exist.mp4"
+
+    with pytest.raises(procutil.SubprocessFailedError) as exc_info:
+        cutter.cut_clip(nonexistent_source, clip, tmp_path / "out")
+
+    message = str(exc_info.value)
+    assert message != "Command '[...]' returned non-zero exit status 1."
+    assert "does_not_exist" in message or "No such file" in message

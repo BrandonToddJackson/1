@@ -10,13 +10,21 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
+from pipeline.procutil import SubprocessFailedError, run_or_raise
 from pipeline.schemas import MediaAsset
 from pipeline.storage import run_dir
 
 _URL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+
+# Sidecar files yt-dlp can leave behind (a previous interrupted download, or
+# extra flags like --write-subs/-k/--write-info-json) that must never be
+# mistaken for the actual downloaded media when falling back to a glob.
+_SIDECAR_SUFFIXES = (
+    ".part", ".ytdl", ".info.json", ".vtt", ".srt",
+    ".jpg", ".jpeg", ".png", ".webp", ".description",
+)
 
 
 def is_url(source: str) -> bool:
@@ -54,28 +62,45 @@ def _download_with_ytdlp(url: str, dest_dir: Path) -> Path:
         "yt-dlp",
         "-f", "mp4/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
+        "--no-playlist",
+        "--print", "after_move:filepath",
         "-o", out_template,
         url,
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = run_or_raise(cmd, "yt-dlp download")
 
-    matches = sorted(dest_dir.glob("source.*"))
+    # Prefer yt-dlp's own report of the final output path over guessing --
+    # this is the only reliable way to know which file is the real download
+    # when sidecar files (partial fragments, subtitles, thumbnails) can
+    # share the "source.*" prefix.
+    printed_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if printed_lines:
+        printed_path = Path(printed_lines[-1])
+        if printed_path.exists():
+            return printed_path
+
+    # Fallback: --print gave nothing usable. Glob, but explicitly exclude
+    # known sidecar suffixes rather than blindly taking the alphabetically
+    # first match (which can pick a ".info.json" or ".part" file over the
+    # real video).
+    matches = sorted(
+        p for p in dest_dir.glob("source.*") if not any(p.name.endswith(suffix) for suffix in _SIDECAR_SUFFIXES)
+    )
     if not matches:
         raise RuntimeError(f"yt-dlp reported success but no output file was found in {dest_dir}")
     return matches[0]
 
 
 def _probe_media(path: Path) -> dict:
-    """Runs ffprobe; returns {} (rather than raising) if ffprobe is
-    unavailable or the file can't be probed, so ingest never hard-fails on
-    metadata alone."""
-    cmd = [
-        "ffprobe", "-v", "quiet", "-print_format", "json",
-        "-show_format", str(path),
-    ]
+    """Runs ffprobe. A missing ffprobe binary is an environment problem --
+    MissingBinaryError propagates so ingest fails fast instead of silently
+    reporting duration=0.0 "success" (the real problem previously only
+    surfaced much later, at the `cut` stage). A file ffprobe simply can't
+    parse is non-fatal and returns {}."""
+    cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)]
     try:
-        proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+        proc = run_or_raise(cmd, "ffprobe")
+    except SubprocessFailedError:
         return {}
 
     try:

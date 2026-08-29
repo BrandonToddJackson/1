@@ -8,9 +8,9 @@ That costs a re-encode, which is fine at clip length (<=~90s).
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
+from pipeline.procutil import run_or_raise
 from pipeline.schemas import Clip
 
 
@@ -26,7 +26,7 @@ def cut_clip(source: Path, clip: Clip, out_dir: Path) -> Path:
         "-c:a", "aac",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    run_or_raise(cmd, f"cut {clip.id}")
     return out_path
 
 

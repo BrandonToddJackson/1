@@ -9,9 +9,9 @@ README's "Swapping in Remotion later" section.
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 
+from pipeline.procutil import run_or_raise
 from pipeline.schemas import Word
 
 # ASS force_style string: white text, black outline/box, bottom-centered.
@@ -24,11 +24,15 @@ MAX_WORDS_PER_CUE = 6
 
 
 def _format_srt_time(t: float) -> str:
-    t = max(0.0, t)
-    hours = int(t // 3600)
-    minutes = int((t % 3600) // 60)
-    seconds = int(t % 60)
-    millis = int(round((t - int(t)) * 1000))
+    """Integer-millisecond arithmetic throughout -- the previous float-based
+    version (`int(round((t - int(t)) * 1000))`) could round up to 1000 with
+    no carry into the seconds field (e.g. "00:00:01,1000"), reachable via
+    ordinary 2-decimal faster-whisper timestamps. divmod on a single
+    rounded integer has no such edge case."""
+    total_ms = int(round(max(0.0, t) * 1000))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    seconds, millis = divmod(rem, 1000)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
 
 
@@ -59,13 +63,6 @@ def words_to_srt(words: list[Word], offset: float = 0.0, max_words_per_cue: int 
     return "\n".join(lines)
 
 
-def _escape_subtitles_path(path: Path) -> str:
-    # ffmpeg's subtitles filter treats ':' as an option separator even inside
-    # a quoted filename; escape it. Backslashes need escaping too.
-    s = str(path).replace("\\", "\\\\").replace(":", "\\:")
-    return s
-
-
 def render_captioned_clip(
     clip_path: Path,
     words: list[Word],
@@ -82,11 +79,20 @@ def render_captioned_clip(
         shutil.copy2(clip_path, out_path)
         return out_path
 
+    clip_path = clip_path.resolve()
+    out_path = out_path.resolve()
     srt_path = clip_path.with_suffix(".srt")
     srt_path.write_text(srt_content, encoding="utf-8")
 
+    # Run with cwd set to the SRT's own directory and reference it by bare
+    # filename -- sidesteps ffmpeg's subtitles-filter path escaping entirely
+    # (a DATA_DIR containing a colon or apostrophe used to break the
+    # filtergraph parse no matter how carefully the path was escaped). Safe
+    # because clip ids are run-scoped alnum+hyphen (see clip_selector.py),
+    # so the filename itself never contains special characters; -i/output
+    # stay absolute so they're unaffected by the cwd change.
     force_style = style or DEFAULT_STYLE
-    vf = f"subtitles='{_escape_subtitles_path(srt_path)}':force_style='{force_style}'"
+    vf = f"subtitles={srt_path.name}:force_style='{force_style}'"
     cmd = ["ffmpeg", "-y", "-i", str(clip_path), "-vf", vf, "-c:a", "copy", str(out_path)]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    run_or_raise(cmd, "caption burn-in", cwd=srt_path.parent)
     return out_path
