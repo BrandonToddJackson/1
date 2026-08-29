@@ -110,6 +110,25 @@ def apply_plan_to_transcript(t: Transcript, plan: EditPlan) -> Transcript:
     for seg in t.segments:
         new_words: list[Word] = []
         for w in seg.words:
+            # Gate on the word's MIDPOINT, not its two boundary points.
+            # declutter's filler-word removal constructs a removed
+            # EditDecision whose start/end ARE the word's own start/end
+            # exactly (see declutter.py's _filler_word_removals) -- for
+            # that word, source_to_clean(w.start) lands exactly on the
+            # edge of the PRECEDING keep range and source_to_clean(w.end)
+            # lands exactly on the edge of the FOLLOWING one, so both
+            # individually succeed (within _EPS) even though every point
+            # strictly between them was removed. The result was a
+            # zero-duration "ghost" word (clean_start == clean_end) that
+            # silently survived into transcript_clean -- caught only by a
+            # real end-to-end run, since no existing removal fixture had a
+            # decision boundary exactly coincide with a word boundary. The
+            # midpoint can't be fooled this way: it only maps successfully
+            # when real surrounding content survives, since declutter never
+            # constructs a removal that splits a single word in half.
+            mid = (w.start + w.end) / 2
+            if source_to_clean(plan, mid) is None:
+                continue
             clean_start = source_to_clean(plan, w.start)
             clean_end = source_to_clean(plan, w.end)
             if clean_start is None or clean_end is None:

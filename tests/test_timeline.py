@@ -223,6 +223,39 @@ def test_apply_plan_to_transcript_remaps_word_timestamps():
     assert words_by_text["three"].start == pytest.approx(16.0 - 5.0)  # 5s removed before it
 
 
+def test_apply_plan_to_transcript_drops_word_whose_span_exactly_equals_removal():
+    # Regression: declutter.py's filler-word removal constructs the removed
+    # EditDecision's start/end as EXACTLY the word's own start/end (see
+    # _filler_word_removals). Both of that word's boundary points then land
+    # exactly on the edge of an adjacent KEEP range, so checking start/end
+    # independently (the old implementation) let both individually map
+    # successfully -- producing a zero-duration "ghost" word instead of
+    # dropping it. Caught by a real end-to-end run against real declutter
+    # output; no prior fixture had a removal boundary exactly coincide with
+    # a word boundary the way every real filler removal actually does.
+    plan = EditPlan(
+        run_id="r1", source_duration=10.0,
+        decisions=[
+            EditDecision(start=0.0, end=3.0, action="keep"),
+            EditDecision(start=3.0, end=4.0, action="remove", reason="filler", text="um"),
+            EditDecision(start=4.0, end=10.0, action="keep"),
+        ],
+    )
+    words = [
+        Word(text="hello", start=1.0, end=2.0),
+        Word(text="um", start=3.0, end=4.0),  # spans EXACTLY the removed decision
+        Word(text="world", start=5.0, end=6.0),
+    ]
+    seg = TranscriptSegment(id=0, start=1.0, end=6.0, text="hello um world", words=words)
+    t = Transcript(run_id="r1", source_path="x.mp4", duration=10.0, segments=[seg])
+
+    cleaned = timeline.apply_plan_to_transcript(t, plan)
+
+    all_words = cleaned.all_words()
+    assert [w.text for w in all_words] == ["hello", "world"]
+    assert all(w.end > w.start for w in all_words)  # no zero-duration survivors
+
+
 def test_apply_plan_to_transcript_identity_is_noop():
     plan = _identity_plan(25.0)
     t = _transcript_with_gap_words()
