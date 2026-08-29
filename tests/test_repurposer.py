@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import repurposer
-from pipeline.schemas import Clip, Learnings, Post, Transcript, TranscriptSegment
+from pipeline.schemas import Clip, Learnings, Transcript, TranscriptSegment
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_transcript.json"
 

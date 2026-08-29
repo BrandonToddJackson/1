@@ -3,6 +3,8 @@ keys configured, and must not require the openai/anthropic SDKs to be
 installed to prove that routing logic works.
 """
 
+import sys
+
 import pytest
 
 from pipeline import llm
@@ -68,11 +70,18 @@ def test_anthropic_preferred_when_both_keys_set(monkeypatch):
 
 
 def test_real_client_classes_import_lazily(monkeypatch):
-    """Instantiating without the optional SDK installed must fail with an
+    """Instantiating without the optional SDK available must fail with an
     ImportError (from the lazy import), not at module import time -- proving
     `import pipeline.llm` itself never requires openai/anthropic installed.
+
+    Forces the import to fail via sys.modules rather than relying on openai
+    actually being absent from this venv -- the previous version of this
+    test passed only because the package happened not to be installed here,
+    and silently started failing the moment it was (e.g. to verify a real
+    key), which tested this environment's install state, not the contract.
     """
     _clear_keys(monkeypatch)
     monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
+    monkeypatch.setitem(sys.modules, "openai", None)  # sys.modules[x] = None forces ImportError on `import x`
     with pytest.raises(ImportError):
         llm.get_llm_client()

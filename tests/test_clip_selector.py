@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from pipeline import clip_selector
-from pipeline.schemas import Clip, Learnings, Transcript, TranscriptSegment, Word
+from pipeline.schemas import Learnings, Transcript, TranscriptSegment, Word
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sample_transcript.json"
 
