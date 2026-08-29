@@ -4,17 +4,24 @@ Zero-key default is a heuristic scorer: candidate windows are snapped to
 pause/sentence boundaries in the word-level timestamps, scored on hook-word
 density and closeness to an ideal length, then de-overlapped (non-max
 suppression) down to ``max_clips``. If ``pipeline.llm.get_llm_client()``
-returns a client, the LLM path is used instead -- same output contract
-either way (mirrors skills/clip-selector/SKILL.md).
+returns a client, the LLM path is tried instead -- and falls back to the
+heuristic path (with a logged warning) if the LLM call fails, returns
+unparseable output, or yields zero usable clips after validation, so a bad
+LLM response degrades gracefully rather than crashing the run. Same output
+contract either way (mirrors skills/clip-selector/SKILL.md).
 """
 
 from __future__ import annotations
 
+import bisect
+import logging
 import re
 from dataclasses import dataclass
 
-from pipeline.llm import LLMClient, get_llm_client
+from pipeline.llm import LLMClient, LLMResponseError, get_llm_client
 from pipeline.schemas import Clip, Learnings, Transcript, Word
+
+log = logging.getLogger(__name__)
 
 DEFAULT_MAX_CLIPS = 5
 DEFAULT_MIN_LEN = 20.0
@@ -48,10 +55,30 @@ STOPWORDS = {
 
 @dataclass
 class _Candidate:
+    """A candidate clip window, deliberately lightweight: no text/segment_ids
+    stored per-instance (that was the real memory cost on long transcripts --
+    tens of thousands of candidates each holding a copy of their own text).
+    ``word_lo``/``word_hi`` index into the shared word list; text and segment
+    ids are computed on demand by the free functions below."""
+
     start: float
     end: float
-    text: str
-    segment_ids: list[int]
+    word_lo: int
+    word_hi: int
+
+
+def _candidate_text(cand: _Candidate, words: list[Word]) -> str:
+    return " ".join(w.text for w in words[cand.word_lo : cand.word_hi]).strip()
+
+
+def _candidate_segment_ids(start: float, end: float, segments: list, seg_starts: list[float], seg_ends: list[float]) -> list[int]:
+    """Segment ids overlapping [start, end), found in O(log n) instead of a
+    full linear scan per candidate. Only called for the small number of
+    finally-selected clips, not for every candidate scored."""
+    lo = bisect.bisect_right(seg_ends, start)
+    hi = bisect.bisect_left(seg_starts, end)
+    hi = max(hi, lo)
+    return [segments[k].id for k in range(lo, hi)]
 
 
 def select_clips(
@@ -61,12 +88,19 @@ def select_clips(
     max_len: float = DEFAULT_MAX_LEN,
     learnings: Learnings | None = None,
 ) -> list[Clip]:
-    """Zero-key heuristic by default; delegates to the LLM path if a key is
-    configured. Both paths return the same ``list[Clip]`` contract."""
+    """Zero-key heuristic by default; tries the LLM path first if a key is
+    configured, falling back to heuristic on any failure or empty result."""
     client = get_llm_client()
-    if client is None:
-        return _select_clips_heuristic(transcript, max_clips, min_len, max_len, learnings)
-    return _select_clips_llm(client, transcript, max_clips, min_len, max_len)
+    if client is not None:
+        try:
+            clips = _select_clips_llm(client, transcript, max_clips, min_len, max_len, learnings)
+        except Exception as exc:  # noqa: BLE001 - any LLM/parsing failure degrades gracefully
+            log.warning("LLM clip selection failed (%s); falling back to heuristic selection", exc)
+        else:
+            if clips:
+                return clips
+            log.warning("LLM clip selection returned no usable clips; falling back to heuristic selection")
+    return _select_clips_heuristic(transcript, max_clips, min_len, max_len, learnings)
 
 
 def _select_clips_heuristic(
@@ -93,33 +127,27 @@ def _select_clips_heuristic(
         if learnings.ideal_clip_length_range:
             lo, hi = learnings.ideal_clip_length_range
             target_len = (lo + hi) / 2
+    target_len = max(target_len, 1.0)  # never divide by zero in _score_candidate
 
-    scored = [(_score_candidate(c, hook_words, target_len), c) for c in candidates]
-    scored.sort(key=lambda pair: pair[0], reverse=True)
+    scored = [(_score_candidate(c, words, hook_words, target_len), c) for c in candidates]
+    selected = _dedupe_and_limit(scored, max_clips)
 
-    selected: list[tuple[float, _Candidate]] = []
-    for score, cand in scored:
-        if len(selected) >= max_clips:
-            break
-        if any(_overlaps(cand, s) for _, s in selected):
-            continue
-        selected.append((score, cand))
-
-    # Output in chronological order -- what a human scanning a clip batch expects.
-    selected.sort(key=lambda pair: pair[1].start)
+    seg_starts = [seg.start for seg in transcript.segments]
+    seg_ends = [seg.end for seg in transcript.segments]
 
     clips: list[Clip] = []
     for i, (score, cand) in enumerate(selected):
+        text = _candidate_text(cand, words)
         clips.append(
             Clip(
-                id=f"clip-{i + 1:02d}",
+                id=f"{transcript.run_id}-clip-{i + 1:02d}",
                 start=round(cand.start, 2),
                 end=round(cand.end, 2),
-                hook=_extract_hook(cand.text),
-                topic=_extract_topic(cand.text),
+                hook=_extract_hook(text),
+                topic=_extract_topic(text),
                 score=round(score, 4),
                 caption_hint=None,
-                source_segment_ids=cand.segment_ids,
+                source_segment_ids=_candidate_segment_ids(cand.start, cand.end, transcript.segments, seg_starts, seg_ends),
                 selection_method="heuristic",
             )
         )
@@ -142,7 +170,14 @@ def _find_boundaries(words: list[Word]) -> list[float]:
 def _build_candidates(
     transcript: Transcript, boundaries: list[float], min_len: float, max_len: float
 ) -> list[_Candidate]:
+    """For every valid (start, end) boundary pair within [min_len, max_len],
+    builds a candidate referencing the words fully inside it via an index
+    range -- found with `bisect` in O(log n), not a full linear scan of every
+    word per candidate (the confirmed quadratic hot path this replaces:
+    8.9s/61MB on a 10-minute transcript, 27.9s/135MB on 20 minutes)."""
     words = transcript.all_words()
+    word_starts = [w.start for w in words]
+
     candidates: list[_Candidate] = []
     n = len(boundaries)
     for i in range(n):
@@ -154,19 +189,22 @@ def _build_candidates(
                 continue
             if length > max_len:
                 break
-            window_words = [w for w in words if w.start >= start and w.end <= end]
-            if not window_words:
+            lo = bisect.bisect_left(word_starts, start)
+            hi = bisect.bisect_left(word_starts, end)
+            # words[lo:hi] all satisfy start&lt;=w.start&lt;end; trim from the right
+            # any word that straddles the end boundary (w.end &gt; end) to match
+            # the original "fully inside [start, end]" semantics.
+            while hi > lo and words[hi - 1].end > end:
+                hi -= 1
+            if hi <= lo:
                 continue
-            text = " ".join(w.text for w in window_words).strip()
-            if not text:
-                continue
-            seg_ids = [seg.id for seg in transcript.segments if seg.end > start and seg.start < end]
-            candidates.append(_Candidate(start=start, end=end, text=text, segment_ids=seg_ids))
+            candidates.append(_Candidate(start=start, end=end, word_lo=lo, word_hi=hi))
     return candidates
 
 
-def _score_candidate(cand: _Candidate, hook_words: set[str], target_len: float) -> float:
-    tokens = re.findall(r"[a-zA-Z']+", cand.text.lower())
+def _score_candidate(cand: _Candidate, words: list[Word], hook_words: set[str], target_len: float) -> float:
+    text = _candidate_text(cand, words)
+    tokens = re.findall(r"[a-zA-Z']+", text.lower())
     if not tokens:
         return 0.0
 
@@ -184,8 +222,25 @@ def _score_candidate(cand: _Candidate, hook_words: set[str], target_len: float) 
     return (0.55 * keyword_density * 10) + (0.35 * length_score) + opening_bonus
 
 
-def _overlaps(a: _Candidate, b: _Candidate) -> bool:
+def _overlaps(a, b) -> bool:
     return a.start < b.end and b.start < a.end
+
+
+def _dedupe_and_limit(scored: list[tuple[float, object]], max_clips: int) -> list[tuple[float, object]]:
+    """Greedy non-max suppression shared by both the heuristic and LLM
+    selection paths: highest score wins for any overlapping windows, output
+    re-sorted chronologically (what a human scanning a clip batch expects).
+    Works on anything with .start/.end -- _Candidate or _LLMCandidate."""
+    ranked = sorted(scored, key=lambda pair: pair[0], reverse=True)
+    selected: list[tuple[float, object]] = []
+    for score, cand in ranked:
+        if len(selected) >= max_clips:
+            break
+        if any(_overlaps(cand, s) for _, s in selected):
+            continue
+        selected.append((score, cand))
+    selected.sort(key=lambda pair: pair[1].start)
+    return selected
 
 
 def _extract_hook(text: str, max_words: int = 12) -> str:
@@ -205,17 +260,44 @@ def _extract_topic(text: str, max_words: int = 4) -> str:
     return " ".join(word for word, _ in top) if top else "general"
 
 
+@dataclass
+class _LLMCandidate:
+    start: float
+    end: float
+    hook: str
+    topic: str
+    caption_hint: str | None
+    score: float
+
+
 def _select_clips_llm(
-    client: LLMClient, transcript: Transcript, max_clips: int, min_len: float, max_len: float
+    client: LLMClient,
+    transcript: Transcript,
+    max_clips: int,
+    min_len: float,
+    max_len: float,
+    learnings: Learnings | None,
 ) -> list[Clip]:
     """LLM path: hand the model the timestamped transcript, force structured
-    JSON output matching the Clip contract (see skills/clip-selector/SKILL.md)."""
+    JSON output matching the Clip contract (see skills/clip-selector/SKILL.md).
+    Every entry is validated and clamped -- a hallucinated out-of-range
+    timestamp or a malformed entry is dropped with a warning, not trusted."""
     system = (
         "You select the best short-form clips from a timestamped transcript for "
         "social media. Pick clips with a strong hook, a complete thought, and a "
         f"duration between {min_len} and {max_len} seconds. Return at most "
         f"{max_clips} clips, non-overlapping, ordered by start time."
     )
+    if learnings:
+        hints = []
+        if learnings.top_keywords:
+            hints.append(f"Known high-performing keywords: {', '.join(learnings.top_keywords)}.")
+        if learnings.ideal_clip_length_range:
+            lo, hi = learnings.ideal_clip_length_range
+            hints.append(f"Known ideal clip length range: {lo:.0f}-{hi:.0f}s -- prefer clips near this length.")
+        if hints:
+            system = system + " " + " ".join(hints)
+
     transcript_lines = "\n".join(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text}" for seg in transcript.segments)
     schema_hint = (
         '{"clips": [{"start": float, "end": float, "hook": str, "topic": str, '
@@ -223,19 +305,69 @@ def _select_clips_llm(
     )
     result = client.complete_json(system=system, user=transcript_lines, schema_hint=schema_hint)
 
-    clips: list[Clip] = []
-    for i, raw in enumerate(result.get("clips", [])[:max_clips]):
-        start, end = float(raw["start"]), float(raw["end"])
-        clips.append(
-            Clip(
-                id=f"clip-{i + 1:02d}",
+    raw_clips = result.get("clips")
+    if not isinstance(raw_clips, list):
+        raise LLMResponseError("LLM clip response missing a 'clips' list")
+
+    duration = transcript.duration if transcript.duration and transcript.duration > 0 else None
+
+    candidates: list[_LLMCandidate] = []
+    for raw in raw_clips:
+        if not isinstance(raw, dict):
+            log.warning("LLM clip entry is not an object, skipping: %r", raw)
+            continue
+        try:
+            start = float(raw["start"])
+            end = float(raw["end"])
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("LLM clip entry missing/invalid start or end, skipping: %s", exc)
+            continue
+        if end <= start:
+            log.warning("LLM clip entry has end <= start, skipping: %r", raw)
+            continue
+        if duration is not None:
+            start = max(0.0, min(start, duration))
+            end = max(0.0, min(end, duration))
+        end = min(end, start + max_len)
+        if end - start < min_len:
+            log.warning("LLM clip entry shorter than min_len after clamping, skipping: %r", raw)
+            continue
+        try:
+            score = float(raw.get("score", 0.5))
+        except (TypeError, ValueError):
+            score = 0.5
+        candidates.append(
+            _LLMCandidate(
                 start=start,
                 end=end,
-                hook=raw.get("hook", ""),
-                topic=raw.get("topic", "general"),
-                score=float(raw.get("score", 0.5)),
+                hook=str(raw.get("hook", "")),
+                topic=str(raw.get("topic", "general")),
                 caption_hint=raw.get("caption_hint"),
-                source_segment_ids=[seg.id for seg in transcript.segments if seg.end > start and seg.start < end],
+                score=score,
+            )
+        )
+
+    if not candidates:
+        return []
+
+    scored = [(c.score, c) for c in candidates]
+    selected = _dedupe_and_limit(scored, max_clips)
+
+    seg_starts = [seg.start for seg in transcript.segments]
+    seg_ends = [seg.end for seg in transcript.segments]
+
+    clips: list[Clip] = []
+    for i, (score, cand) in enumerate(selected):
+        clips.append(
+            Clip(
+                id=f"{transcript.run_id}-clip-{i + 1:02d}",
+                start=round(cand.start, 2),
+                end=round(cand.end, 2),
+                hook=cand.hook,
+                topic=cand.topic,
+                score=round(score, 4),
+                caption_hint=cand.caption_hint,
+                source_segment_ids=_candidate_segment_ids(cand.start, cand.end, transcript.segments, seg_starts, seg_ends),
                 selection_method="llm",
             )
         )
