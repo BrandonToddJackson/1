@@ -1,0 +1,42 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"label","type":"string","label":"Short corner label, optional","default":""}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .frame {
+    position: absolute; inset: 28px; border: 6px solid var(--gfx-accent);
+    border-radius: 24px; opacity: 0;
+  }
+  .chip {
+    position: absolute; top: 56px; left: 56px; padding: 10px 22px;
+    border-radius: 999px; background: var(--gfx-bg); color: var(--gfx-fg);
+    font-family: var(--gfx-font); font-size: 26px; font-weight: 700;
+    opacity: 0;
+  }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="1.5" data-no-timeline>
+    <div class="frame" id="frame"></div>
+    <div class="chip" id="chip"></div>
+  </div>
+  <script>
+    const { label } = window.__hyperframes.getVariables();
+    const chip = document.getElementById("chip");
+    if (label) { chip.textContent = label; } else { chip.style.display = "none"; }
+
+    const keyframes = [
+      { opacity: 0, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+      { opacity: 1, offset: 0.2, easing: "linear" },
+      { opacity: 1, offset: 0.8, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+      { opacity: 0, offset: 1 },
+    ];
+    document.getElementById("frame").animate(keyframes, { duration: 1500, fill: "forwards" });
+    document.getElementById("chip").animate(keyframes, { duration: 1500, fill: "forwards" });
+  </script>
+</body>
+</html>

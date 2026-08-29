@@ -1,0 +1,40 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"word","type":"string","label":"The word or short phrase to emphasize","default":"WORD"}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .word {
+    position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%) scale(0.5) rotate(-4deg);
+    font-family: var(--gfx-font); font-size: 140px; font-weight: 900;
+    color: var(--gfx-fg); text-transform: uppercase; letter-spacing: 2px;
+    text-shadow: 0 6px 0 rgba(0, 0, 0, 0.35);
+    -webkit-text-stroke: 3px var(--gfx-accent);
+    opacity: 0;
+  }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="1.2" data-no-timeline>
+    <div class="word" id="word"></div>
+  </div>
+  <script>
+    const { word } = window.__hyperframes.getVariables();
+    document.getElementById("word").textContent = word;
+
+    document.getElementById("word").animate(
+      [
+        { opacity: 0, transform: "translate(-50%, -50%) scale(0.5) rotate(-4deg)", easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1.15) rotate(1deg)", offset: 0.22, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1) rotate(0deg)", offset: 0.4, easing: "linear" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1) rotate(0deg)", offset: 0.8, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+        { opacity: 0, transform: "translate(-50%, -50%) scale(1) rotate(0deg)", offset: 1 },
+      ],
+      { duration: 1200, fill: "forwards" }
+    );
+  </script>
+</body>
+</html>

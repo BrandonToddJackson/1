@@ -1,0 +1,25 @@
+/* Brand tokens shared by every composition in graphics/compositions/.
+   Keeps the catalog visually consistent without each composition
+   hand-picking colors/fonts -- see MOTION.md for how/when to use these. */
+
+:root {
+  --gfx-bg: rgba(12, 12, 20, 0.88);
+  --gfx-bg-solid: #0c0c14;
+  --gfx-fg: #ffffff;
+  --gfx-fg-muted: rgba(255, 255, 255, 0.72);
+  --gfx-accent: #ffce45;
+  --gfx-radius: 14px;
+  --gfx-font: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --gfx-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --gfx-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}

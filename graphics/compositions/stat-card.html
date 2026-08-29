@@ -1,0 +1,46 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"value","type":"string","label":"The stat itself","default":"10x"},
+  {"id":"label","type":"string","label":"What it measures","default":""}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .card {
+    position: absolute; left: 50%; top: 58%; transform: translate(-50%, -50%) scale(0.7);
+    padding: 40px 64px; border-radius: var(--gfx-radius);
+    background: var(--gfx-bg); font-family: var(--gfx-font); color: var(--gfx-fg);
+    text-align: center; opacity: 0;
+  }
+  .value { font-size: 110px; font-weight: 900; color: var(--gfx-accent); line-height: 1; }
+  .label { margin-top: 8px; font-size: 30px; color: var(--gfx-fg-muted); }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="2.0" data-no-timeline>
+    <div class="card" id="card">
+      <div class="value" id="value"></div>
+      <div class="label" id="label"></div>
+    </div>
+  </div>
+  <script>
+    const { value, label } = window.__hyperframes.getVariables();
+    document.getElementById("value").textContent = value;
+    const labelEl = document.getElementById("label");
+    if (label) { labelEl.textContent = label; } else { labelEl.style.display = "none"; }
+
+    document.getElementById("card").animate(
+      [
+        { opacity: 0, transform: "translate(-50%, -50%) scale(0.7)", easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1.05)", offset: 0.16, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.28, easing: "linear" },
+        { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.85, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+        { opacity: 0, transform: "translate(-50%, -50%) scale(1)", offset: 1 },
+      ],
+      { duration: 2000, fill: "forwards" }
+    );
+  </script>
+</body>
+</html>

@@ -578,3 +578,89 @@ def test_run_with_declutter_level_light_writes_edit_plan(monkeypatch, tmp_path, 
 
     plan = read_json(stage_path(run_id, "edit_plan"), EditPlan)
     assert plan.level == "light"
+
+
+# --------------------------------------------------------------------------
+# 16. graphics stage: no LLM key -> skipped, final_clips.json points at the
+#     captioned clip; publish requires final_clips.json (not
+#     captioned_clips.json); --only re-renders just one clip.
+# --------------------------------------------------------------------------
+
+def test_graphics_skipped_without_llm_key_points_at_captioned_clip(monkeypatch, tmp_path, sample_video):
+    from pipeline import graphics as graphics_module
+    from pipeline.storage import read_json_list as _read_list
+    from pipeline.schemas import GraphicsPlan
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(graphics_module, "get_llm_client", lambda: None)
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "graphics-no-key"
+    result = runner.invoke(cli.app, ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--max-clips", "1"])
+    assert result.exit_code == 0, result.output
+
+    captioned = cli._load_path_map(stage_path(run_id, "captioned_clips"))
+    final = cli._load_path_map(stage_path(run_id, "final_clips"))
+    # Skipped still writes its OWN artifact (the governing rule: disabled
+    # is an identity copy, never a missing/reused path) -- same bytes,
+    # different path, under clips_graphics/ rather than clips_captioned/.
+    assert set(final) == set(captioned)
+    for clip_id in final:
+        assert final[clip_id] != captioned[clip_id]
+        assert final[clip_id].read_bytes() == captioned[clip_id].read_bytes()
+
+    plans = _read_list(stage_path(run_id, "graphics_plans"), GraphicsPlan)
+    assert all(p.method == "skipped" for p in plans)
+
+
+def test_publish_requires_final_clips_not_captioned_clips(monkeypatch, tmp_path, sample_video):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "needs-graphics-first"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
+    assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["declutter", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["select-clips", run_id, "--min-len", "1"]).exit_code == 0
+    assert runner.invoke(cli.app, ["cut", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["caption", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["repurpose", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["publish", run_id])
+    assert result.exit_code == 1
+    assert "final_clips.json" in result.output
+    assert "graphics" in result.output
+
+
+def test_graphics_only_flag_touches_just_one_clip(monkeypatch, tmp_path, sample_video):
+    from pipeline import graphics as graphics_module
+    from pipeline.schemas import GraphicsPlan
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    calls = []
+
+    def fake_plan_and_render(clip_id, clip_path, clip_words, out_path, **kwargs):
+        calls.append(clip_id)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(Path(clip_path).read_bytes())
+        return GraphicsPlan(clip_id=clip_id, method="skipped", skipped_reason="stubbed for test")
+
+    monkeypatch.setattr(graphics_module, "plan_and_render_graphics", fake_plan_and_render)
+
+    run_id = "graphics-only"
+    first = runner.invoke(
+        cli.app, ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--max-len", "4", "--max-clips", "2"],
+    )
+    assert first.exit_code == 0, first.output
+
+    clips = read_json_list(stage_path(run_id, "clips"), Clip)
+    assert len(clips) >= 2, "need at least 2 clips for this test to be meaningful"
+    target = clips[0].id
+
+    calls.clear()
+    result = runner.invoke(cli.app, ["graphics", run_id, "--only", target])
+    assert result.exit_code == 0, result.output
+    assert calls == [target]

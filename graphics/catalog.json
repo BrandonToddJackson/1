@@ -1,0 +1,61 @@
+{
+  "compositions": [
+    {
+      "id": "lower-third",
+      "file": "compositions/lower-third.html",
+      "description": "Name/title card sliding in from the bottom-left. Use when introducing a person, naming a claim's source, or opening a section.",
+      "duration": 2.5,
+      "variables": [
+        {"id": "title", "type": "string", "label": "Primary line (e.g. a name or claim)"},
+        {"id": "subtitle", "type": "string", "label": "Secondary line (e.g. a title or context), can be empty"}
+      ]
+    },
+    {
+      "id": "stat-card",
+      "file": "compositions/stat-card.html",
+      "description": "A big number with a short label, scale-punched into center screen. Use when the speaker states a specific statistic, percentage, or dollar figure worth emphasizing.",
+      "duration": 2.0,
+      "variables": [
+        {"id": "value", "type": "string", "label": "The number/stat itself (e.g. '3.2x', '$4,200', '87%')"},
+        {"id": "label", "type": "string", "label": "What the stat measures, can be empty"}
+      ]
+    },
+    {
+      "id": "quote-card",
+      "file": "compositions/quote-card.html",
+      "description": "A short quoted line in large centered text. Use for one punchy, quotable sentence the speaker just said -- not a paraphrase, the actual words.",
+      "duration": 2.5,
+      "variables": [
+        {"id": "quote", "type": "string", "label": "The quoted line, kept short (under ~10 words)"}
+      ]
+    },
+    {
+      "id": "keyword-pop",
+      "file": "compositions/keyword-pop.html",
+      "description": "One or two words scale-punched onto the screen for emphasis. Use for a single high-impact word or short phrase (e.g. 'NEVER', 'FREE', 'the #1 mistake'). Costs very little screen time -- fine to use more than once per clip if the moments are far enough apart.",
+      "duration": 1.2,
+      "variables": [
+        {"id": "word", "type": "string", "label": "The word or short phrase to emphasize"}
+      ]
+    },
+    {
+      "id": "facecam-frame",
+      "file": "compositions/facecam-frame.html",
+      "description": "A decorative border treatment around the whole frame with an optional corner label. Use sparingly -- once per clip at most -- to bookend an intro or signal a segment change.",
+      "duration": 1.5,
+      "variables": [
+        {"id": "label", "type": "string", "label": "A short corner label (e.g. a section name), can be empty"}
+      ]
+    },
+    {
+      "id": "progress-dots",
+      "file": "compositions/progress-dots.html",
+      "description": "A small 'N / total' step indicator with dots, bottom-center. Use when the speaker is visibly walking through an enumerated list or numbered steps.",
+      "duration": 2.0,
+      "variables": [
+        {"id": "current", "type": "string", "label": "Current step number, as a string (e.g. '2')"},
+        {"id": "total", "type": "string", "label": "Total step count, as a string (e.g. '3')"}
+      ]
+    }
+  ]
+}

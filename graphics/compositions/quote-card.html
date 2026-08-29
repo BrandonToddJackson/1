@@ -1,0 +1,42 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"quote","type":"string","label":"The quoted line","default":"Quote"}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .card {
+    position: absolute; left: 50%; top: 45%; transform: translate(-50%, -50%);
+    width: 1400px; padding: 44px 64px; border-radius: var(--gfx-radius);
+    background: var(--gfx-bg); font-family: var(--gfx-font); color: var(--gfx-fg);
+    text-align: center; opacity: 0;
+  }
+  .mark { font-size: 64px; color: var(--gfx-accent); line-height: 0.5; }
+  .quote { font-size: 52px; font-weight: 700; line-height: 1.25; }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="2.5" data-no-timeline>
+    <div class="card" id="card">
+      <div class="mark">&ldquo;</div>
+      <div class="quote" id="quote"></div>
+    </div>
+  </div>
+  <script>
+    const { quote } = window.__hyperframes.getVariables();
+    document.getElementById("quote").textContent = quote;
+
+    document.getElementById("card").animate(
+      [
+        { opacity: 0, transform: "translate(-50%, -46%)", easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, -50%)", offset: 0.14, easing: "linear" },
+        { opacity: 1, transform: "translate(-50%, -50%)", offset: 0.88, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+        { opacity: 0, transform: "translate(-50%, -50%)", offset: 1 },
+      ],
+      { duration: 2500, fill: "forwards" }
+    );
+  </script>
+</body>
+</html>

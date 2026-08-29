@@ -1,0 +1,9 @@
+{
+  "name": "content-pipeline-graphics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HyperFrames motion-graphics compositions for the content pipeline's graphics stage. Scoped to this directory -- invisible to anyone who never runs `graphics` (see pipeline/graphics.py).",
+  "dependencies": {
+    "hyperframes": "0.8.17"
+  }
+}

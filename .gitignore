@@ -20,3 +20,11 @@ learnings.json
 *.wav
 *.srt
 !fixtures/**
+
+# graphics/ (HyperFrames Node project, scoped to its own directory) --
+# node_modules is real (npm install), never committed; renders/ and
+# snapshots/ are generated output (rendered alpha MOVs, preview PNGs).
+graphics/node_modules/
+graphics/renders/
+graphics/snapshots/
+*.mov

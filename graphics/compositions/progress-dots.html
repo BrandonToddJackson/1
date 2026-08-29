@@ -1,0 +1,54 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"current","type":"string","label":"Current step number, as a string","default":"1"},
+  {"id":"total","type":"string","label":"Total step count, as a string","default":"3"}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .pill {
+    position: absolute; left: 50%; bottom: 130px; transform: translate(-50%, 0);
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 30px; border-radius: 999px; background: var(--gfx-bg);
+    font-family: var(--gfx-font); color: var(--gfx-fg); opacity: 0;
+  }
+  .text { font-size: 26px; font-weight: 700; }
+  .dots { display: flex; gap: 10px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); }
+  .dot.active { background: var(--gfx-accent); }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="2.0" data-no-timeline>
+    <div class="pill" id="pill">
+      <span class="text" id="text"></span>
+      <span class="dots" id="dots"></span>
+    </div>
+  </div>
+  <script>
+    const { current, total } = window.__hyperframes.getVariables();
+    const currentN = parseInt(current, 10) || 1;
+    const totalN = Math.max(parseInt(total, 10) || 1, currentN);
+
+    document.getElementById("text").textContent = `${currentN} / ${totalN}`;
+    const dots = document.getElementById("dots");
+    for (let i = 1; i <= totalN; i++) {
+      const d = document.createElement("span");
+      d.className = "dot" + (i <= currentN ? " active" : "");
+      dots.appendChild(d);
+    }
+
+    document.getElementById("pill").animate(
+      [
+        { opacity: 0, transform: "translate(-50%, 16px)", easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(-50%, 0)", offset: 0.16, easing: "linear" },
+        { opacity: 1, transform: "translate(-50%, 0)", offset: 0.85, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+        { opacity: 0, transform: "translate(-50%, 0)", offset: 1 },
+      ],
+      { duration: 2000, fill: "forwards" }
+    );
+  </script>
+</body>
+</html>

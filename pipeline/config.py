@@ -44,6 +44,12 @@ class Settings(BaseModel):
     huggingface_token: str | None = None
     transcribe_backend: str = "auto"
     diarization_backend: str = "auto"
+    # Motion graphics (the `graphics` stage) -- zero-key-skipped by default,
+    # see pipeline/graphics.py::graphics_available.
+    graphics_project_dir: str = "graphics"
+    graphics_max_beats: int = 4
+    npx_bin: str = "npx"
+    render_timeout_s: float = 600.0
 
 
 def _parse_float(raw: str | None, default: float) -> float:
@@ -53,6 +59,16 @@ def _parse_float(raw: str | None, default: float) -> float:
         return float(raw)
     except ValueError:
         log.warning("expected a float, got %r; using default %s", raw, default)
+        return default
+
+
+def _parse_int(raw: str | None, default: int) -> int:
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        log.warning("expected an int, got %r; using default %s", raw, default)
         return default
 
 
@@ -92,6 +108,10 @@ def get_settings() -> Settings:
         huggingface_token=os.environ.get("HUGGINGFACE_TOKEN") or None,
         transcribe_backend=os.environ.get("TRANSCRIBE_BACKEND", "auto"),
         diarization_backend=os.environ.get("DIARIZATION_BACKEND", "auto"),
+        graphics_project_dir=os.environ.get("GRAPHICS_PROJECT_DIR", "graphics"),
+        graphics_max_beats=_parse_int(os.environ.get("GRAPHICS_MAX_BEATS"), 4),
+        npx_bin=os.environ.get("NPX_BIN", "npx"),
+        render_timeout_s=_parse_float(os.environ.get("RENDER_TIMEOUT_S"), 600.0),
     )
 
 

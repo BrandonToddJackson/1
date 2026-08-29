@@ -36,3 +36,17 @@ def test_cwd_is_respected(tmp_path):
     cmd = [sys.executable, "-c", "import os; print(os.path.exists('marker.txt'))"]
     result = procutil.run_or_raise(cmd, "test-step", cwd=tmp_path)
     assert result.stdout.strip() == "True"
+
+
+def test_timeout_raises_subprocess_timeout_error():
+    cmd = [sys.executable, "-c", "import time; time.sleep(5)"]
+    with pytest.raises(procutil.SubprocessTimeoutError, match="test-step"):
+        procutil.run_or_raise(cmd, "test-step", timeout=0.1)
+
+
+def test_no_timeout_by_default_is_unaffected():
+    # A fast command with timeout=None (the default) must behave exactly
+    # like before this parameter existed.
+    cmd = [sys.executable, "-c", "print('ok')"]
+    result = procutil.run_or_raise(cmd, "test-step")
+    assert result.stdout.strip() == "ok"

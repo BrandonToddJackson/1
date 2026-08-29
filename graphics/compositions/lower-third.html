@@ -1,0 +1,50 @@
+<!doctype html>
+<html data-composition-variables='[
+  {"id":"title","type":"string","label":"Primary line","default":"Title"},
+  {"id":"subtitle","type":"string","label":"Secondary line","default":""}
+]'>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+  .card {
+    position: absolute; left: 90px; bottom: 110px; max-width: 1200px;
+    padding: 28px 40px; border-radius: var(--gfx-radius);
+    background: var(--gfx-bg); font-family: var(--gfx-font); color: var(--gfx-fg);
+    opacity: 0; transform: translate(-24px, 0);
+    border-left: 6px solid var(--gfx-accent);
+  }
+  .title { font-size: 44px; font-weight: 800; line-height: 1.1; }
+  .subtitle { margin-top: 6px; font-size: 26px; color: var(--gfx-fg-muted); }
+</style>
+</head>
+<body>
+  <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-duration="2.5" data-no-timeline>
+    <div class="card" id="card">
+      <div class="title" id="title"></div>
+      <div class="subtitle" id="subtitle"></div>
+    </div>
+  </div>
+  <script>
+    const { title, subtitle } = window.__hyperframes.getVariables();
+    document.getElementById("title").textContent = title;
+    const sub = document.getElementById("subtitle");
+    if (subtitle) { sub.textContent = subtitle; } else { sub.style.display = "none"; }
+
+    // One combined animation (entrance -> hold -> exit) via explicit
+    // keyframe offsets -- two separate .animate() calls on the same
+    // property would fight each other, since both start at t=0.
+    const card = document.getElementById("card");
+    card.animate(
+      [
+        { opacity: 0, transform: "translate(-24px, 0)", easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+        { opacity: 1, transform: "translate(0, 0)", offset: 0.128, easing: "linear" },
+        { opacity: 1, transform: "translate(0, 0)", offset: 0.88, easing: "cubic-bezier(0.7, 0, 0.84, 0)" },
+        { opacity: 0, transform: "translate(0, 0)", offset: 1 },
+      ],
+      { duration: 2500, fill: "forwards" }
+    );
+  </script>
+</body>
+</html>

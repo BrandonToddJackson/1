@@ -32,7 +32,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pipeline import analyst, audio, captioner, clip_selector, cutter, declutter, ingest, publisher, repurposer
+from pipeline import analyst, audio, captioner, clip_selector, cutter, declutter, graphics, ingest, publisher, repurposer
 from pipeline import timeline as timeline_
 from pipeline import transcribe as transcribe_
 from pipeline.config import get_settings, new_run_id
@@ -40,6 +40,7 @@ from pipeline.schemas import (
     Clip,
     DEFAULT_PLATFORMS,
     EditPlan,
+    GraphicsPlan,
     MediaAsset,
     PipelineRun,
     Platform,
@@ -75,7 +76,8 @@ class PipelineError(RuntimeError):
 
 
 STAGE_ORDER: tuple[str, ...] = (
-    "ingest", "enhance", "transcribe", "declutter", "select_clips", "cut", "caption", "repurpose", "publish",
+    "ingest", "enhance", "transcribe", "declutter", "select_clips", "cut", "caption", "graphics",
+    "repurpose", "publish",
 )
 
 # Artifacts (glob patterns relative to the run directory) each stage owns --
@@ -89,6 +91,7 @@ STAGE_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "select_clips": ("clips.json",),
     "cut": ("raw_clips.json", "clips_raw"),
     "caption": ("captioned_clips.json", "clips_captioned"),
+    "graphics": ("graphics_plans.json", "final_clips.json", "clips_graphics"),
     "repurpose": ("posts.json",),
     "publish": ("publish_results.json", "outbox"),
 }
@@ -101,8 +104,9 @@ STAGE_REQUIRES: dict[str, tuple[str, ...]] = {
     "select_clips": ("transcript_clean.json",),
     "cut": ("media.json", "clips.json", "edit_plan.json"),
     "caption": ("transcript_clean.json", "clips.json", "raw_clips.json"),
+    "graphics": ("transcript_clean.json", "clips.json", "captioned_clips.json"),
     "repurpose": ("transcript_clean.json", "clips.json"),
-    "publish": ("posts.json",),
+    "publish": ("posts.json", "final_clips.json"),
 }
 
 _PRODUCED_BY: dict[str, str] = {
@@ -113,6 +117,8 @@ _PRODUCED_BY: dict[str, str] = {
     "edit_plan.json": "declutter",
     "clips.json": "select-clips",
     "raw_clips.json": "cut",
+    "captioned_clips.json": "caption",
+    "final_clips.json": "graphics",
     "posts.json": "repurpose",
 }
 
@@ -453,6 +459,78 @@ def _stage_caption(run_id: str, style: str = "plain") -> None:
     console.print(f"[bold]caption[/bold] run_id={run_id}: {len(captioned)} clip(s) captioned (style={style})")
 
 
+def _stage_graphics(run_id: str, only: Optional[str] = None) -> None:
+    """Same resume-by-skipping-existing-output design as _stage_cut/
+    _stage_caption -- a beat's own render is already deterministically
+    cached in graphics/renders/ by content hash (see pipeline/graphics.py),
+    so re-running this stage in full is cheap even without this. `only`
+    re-renders just one clip id's beats (e.g. after hand-editing its entry
+    in graphics_plans.json) without touching any other clip's output --
+    every other clip keeps whatever final_clips.json already has for it,
+    or falls back to its captioned clip if this is the very first run."""
+    _require_stage_artifact(run_id, "graphics")
+
+    transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
+    clips = read_json_list(stage_path(run_id, "clips"), Clip)
+    captioned = _load_path_map(stage_path(run_id, "captioned_clips"))
+    all_words = transcript.all_words()
+    settings = get_settings()
+
+    out_dir = run_dir(run_id) / "clips_graphics"
+    final_path = stage_path(run_id, "final_clips")
+    final: dict[str, Path] = _load_path_map(final_path) if final_path.exists() else {}
+
+    plans_path = stage_path(run_id, "graphics_plans")
+    plans_by_id: dict[str, GraphicsPlan] = {}
+    if plans_path.exists():
+        plans_by_id = {p.clip_id: p for p in read_json_list(plans_path, GraphicsPlan)}
+
+    _save_path_map(final_path, final)  # ensure the file exists even with 0 clips
+
+    console.print(f"[bold]graphics[/bold] run_id={run_id}" + (f" (--only {only})" if only else ""))
+    failures: list[str] = []
+    for clip in clips:
+        out_path = out_dir / f"{clip.id}.mp4"
+
+        if only is not None and clip.id != only:
+            if clip.id not in final and clip.id in captioned:
+                final[clip.id] = captioned[clip.id]  # first run under --only: still needs SOME final artifact
+            continue
+        if only is None and clip.id in final and out_path.exists():
+            continue  # resume-by-skip
+
+        if clip.id not in captioned:
+            failures.append(f"{clip.id}: no captioned clip found for this id (captioned_clips.json out of sync -- re-run `caption`)")
+            continue
+
+        clip_words = [w for w in all_words if w.start >= clip.start and w.end <= clip.end]
+        try:
+            plan = graphics.plan_and_render_graphics(
+                clip.id, captioned[clip.id], clip_words, out_path,
+                graphics_dir=Path(settings.graphics_project_dir),
+                npx_bin=settings.npx_bin,
+                max_beats=settings.graphics_max_beats,
+                render_timeout_s=settings.render_timeout_s,
+            )
+        except Exception as exc:  # noqa: BLE001 - only the final composite failing is a real error
+            failures.append(f"{clip.id}: {exc}")
+            continue
+
+        plans_by_id[clip.id] = plan
+        final[clip.id] = out_path
+        _save_path_map(final_path, final)  # persist after EACH success
+        write_json_list(plans_path, list(plans_by_id.values()))
+
+    if failures:
+        raise PipelineError("graphics: " + "; ".join(failures))
+
+    run = load_run_state(run_id)
+    run.mark_done("graphics")
+    save_run_state(run)
+    n_with_beats = sum(1 for p in plans_by_id.values() if p.beats)
+    console.print(f"  {len(final)} clip(s) ready, {n_with_beats} with graphics beats")
+
+
 def _stage_repurpose(run_id: str, platforms: tuple[Platform, ...]) -> None:
     _require_stage_artifact(run_id, "repurpose")
     run = load_run_state(run_id)
@@ -483,8 +561,8 @@ def _stage_publish(run_id: str) -> None:
     _invalidate_from(run_id, run, "publish")
 
     posts = read_json_list(stage_path(run_id, "posts"), Post)
-    captioned_path = stage_path(run_id, "captioned_clips")
-    media = _load_path_map(captioned_path) if captioned_path.exists() else {}
+    final_path = stage_path(run_id, "final_clips")
+    media = _load_path_map(final_path) if final_path.exists() else {}
 
     try:
         results = publisher.publish(run_id, posts, clip_media=media)
@@ -580,6 +658,17 @@ def caption_cmd(
         _stage_caption(run_id, style=style)
     except PipelineError as exc:
         _fail("caption", exc)
+
+
+@app.command("graphics")
+def graphics_cmd(
+    run_id: str,
+    only: Optional[str] = typer.Option(None, "--only", help="Re-render just this one clip id's beats"),
+) -> None:
+    try:
+        _stage_graphics(run_id, only=only)
+    except PipelineError as exc:
+        _fail("graphics", exc)
 
 
 @app.command("repurpose")
@@ -703,6 +792,7 @@ def run_cmd(
         "select_clips": lambda: _stage_select_clips(run_id, max_clips, min_len, max_len),
         "cut": lambda: _stage_cut(run_id),
         "caption": lambda: _stage_caption(run_id, style=caption_style),
+        "graphics": lambda: _stage_graphics(run_id),
         "repurpose": lambda: _stage_repurpose(run_id, platform_tuple),
         "publish": lambda: _stage_publish(run_id),
     }
