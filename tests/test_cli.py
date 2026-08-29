@@ -66,7 +66,7 @@ def test_full_run_end_to_end(monkeypatch, tmp_path, sample_video):
     run = load_run_state(run_id)
     assert run.status == "completed"
     assert set(run.stages_completed) == {
-        "ingest", "enhance", "transcribe", "select_clips", "cut", "caption", "repurpose", "publish",
+        "ingest", "enhance", "transcribe", "declutter", "select_clips", "cut", "caption", "repurpose", "publish",
     }
 
     outbox = run_dir(run_id) / "outbox"

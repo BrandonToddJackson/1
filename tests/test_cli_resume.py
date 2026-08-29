@@ -144,7 +144,7 @@ def test_select_clips_rerun_invalidates_downstream(monkeypatch, tmp_path, sample
     assert reselect.exit_code == 0, reselect.output
 
     run = load_run_state(run_id)
-    assert run.stages_completed == ["ingest", "enhance", "transcribe", "select_clips"]
+    assert run.stages_completed == ["ingest", "enhance", "transcribe", "declutter", "select_clips"]
 
     base = run_dir(run_id)
     for stale in ("raw_clips.json", "captioned_clips.json", "posts.json", "publish_results.json", "clips_raw", "clips_captioned", "outbox"):
@@ -302,6 +302,7 @@ def test_partial_cut_failure_preserves_completed_clips(monkeypatch, tmp_path, sa
     assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
     assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
     assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["declutter", run_id]).exit_code == 0
     # A small --max-len forces the 3-sentence fake transcript to split into
     # multiple clips instead of one window covering everything.
     select_result = runner.invoke(cli.app, ["select-clips", run_id, "--min-len", "1", "--max-len", "4", "--max-clips", "2"])
@@ -387,6 +388,7 @@ def test_stage_functions_are_callable_directly(monkeypatch, tmp_path, sample_vid
     cli._stage_ingest(str(sample_video), run_id)
     cli._stage_enhance(run_id, enabled=False)
     cli._stage_transcribe(run_id)
+    cli._stage_declutter(run_id, level="off")
     cli._stage_select_clips(run_id, max_clips=2, min_len=1.0, max_len=90.0)
 
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
@@ -487,3 +489,89 @@ def test_select_clips_rerun_does_not_invalidate_enhance(monkeypatch, tmp_path, s
 
     assert stage_path(run_id, "enhanced_media").exists()
     assert stage_path(run_id, "enhanced_media").stat().st_mtime == enhanced_mtime_before
+
+
+# --------------------------------------------------------------------------
+# 15. declutter stage: default off produces an identity clean transcript,
+#     select-clips requires transcript_clean.json (not transcript.json),
+#     and re-running select-clips doesn't invalidate declutter.
+# --------------------------------------------------------------------------
+
+def test_declutter_default_off_produces_identity_clean_transcript(monkeypatch, tmp_path, sample_video):
+    from pipeline.schemas import Transcript as TranscriptSchema
+    from pipeline.storage import read_json
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "declutter-off"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
+    assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["declutter", run_id])
+    assert result.exit_code == 0, result.output
+
+    original = read_json(stage_path(run_id, "transcript"), TranscriptSchema)
+    clean = read_json(stage_path(run_id, "transcript_clean"), TranscriptSchema)
+    assert [w.text for w in clean.all_words()] == [w.text for w in original.all_words()]
+    assert clean.duration == original.duration
+
+    from pipeline.schemas import EditPlan
+
+    plan = read_json(stage_path(run_id, "edit_plan"), EditPlan)
+    assert plan.method == "identity"
+    assert plan.level == "off"
+
+
+def test_select_clips_requires_transcript_clean_not_transcript(monkeypatch, tmp_path, sample_video):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "needs-declutter-first"
+    assert runner.invoke(cli.app, ["ingest", str(sample_video), "--run-id", run_id]).exit_code == 0
+    assert runner.invoke(cli.app, ["enhance", run_id, "--off"]).exit_code == 0
+    assert runner.invoke(cli.app, ["transcribe", run_id]).exit_code == 0
+
+    result = runner.invoke(cli.app, ["select-clips", run_id, "--min-len", "1"])
+    assert result.exit_code == 1
+    assert "transcript_clean.json" in result.output
+    assert "declutter" in result.output
+
+
+def test_select_clips_rerun_does_not_invalidate_declutter(monkeypatch, tmp_path, sample_video):
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "reselect-keeps-declutter"
+    first = runner.invoke(cli.app, ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--max-clips", "2"])
+    assert first.exit_code == 0, first.output
+
+    clean_mtime_before = stage_path(run_id, "transcript_clean").stat().st_mtime
+
+    reselect = runner.invoke(cli.app, ["select-clips", run_id, "--min-len", "2", "--max-clips", "1"])
+    assert reselect.exit_code == 0, reselect.output
+
+    assert stage_path(run_id, "transcript_clean").exists()
+    assert stage_path(run_id, "transcript_clean").stat().st_mtime == clean_mtime_before
+
+
+def test_run_with_declutter_level_light_writes_edit_plan(monkeypatch, tmp_path, sample_video):
+    from pipeline.schemas import EditPlan
+    from pipeline.storage import read_json
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _use_fake_transcribe(monkeypatch)
+
+    run_id = "declutter-light-run"
+    result = runner.invoke(
+        cli.app,
+        ["run", str(sample_video), "--run-id", run_id, "--min-len", "1", "--declutter-level", "light"],
+    )
+    assert result.exit_code == 0, result.output
+
+    run = load_run_state(run_id)
+    assert run.params["declutter_level"] == "light"
+
+    plan = read_json(stage_path(run_id, "edit_plan"), EditPlan)
+    assert plan.level == "light"

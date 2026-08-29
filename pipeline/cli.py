@@ -32,7 +32,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from pipeline import analyst, audio, captioner, clip_selector, cutter, ingest, publisher, repurposer
+from pipeline import analyst, audio, captioner, clip_selector, cutter, declutter, ingest, publisher, repurposer
+from pipeline import timeline as timeline_
 from pipeline import transcribe as transcribe_
 from pipeline.config import get_settings, new_run_id
 from pipeline.schemas import (
@@ -73,7 +74,7 @@ class PipelineError(RuntimeError):
 
 
 STAGE_ORDER: tuple[str, ...] = (
-    "ingest", "enhance", "transcribe", "select_clips", "cut", "caption", "repurpose", "publish",
+    "ingest", "enhance", "transcribe", "declutter", "select_clips", "cut", "caption", "repurpose", "publish",
 )
 
 # Artifacts (glob patterns relative to the run directory) each stage owns --
@@ -83,6 +84,7 @@ STAGE_ARTIFACTS: dict[str, tuple[str, ...]] = {
     "ingest": ("media.json", "source.*"),
     "enhance": ("enhanced_media.json", "enhanced.*"),
     "transcribe": ("transcript.json",),
+    "declutter": ("edit_plan.json", "transcript_clean.json"),
     "select_clips": ("clips.json",),
     "cut": ("raw_clips.json", "clips_raw"),
     "caption": ("captioned_clips.json", "clips_captioned"),
@@ -94,10 +96,11 @@ STAGE_ARTIFACTS: dict[str, tuple[str, ...]] = {
 STAGE_REQUIRES: dict[str, tuple[str, ...]] = {
     "enhance": ("media.json",),
     "transcribe": ("enhanced_media.json",),
-    "select_clips": ("transcript.json",),
+    "declutter": ("transcript.json",),
+    "select_clips": ("transcript_clean.json",),
     "cut": ("media.json", "clips.json"),
-    "caption": ("transcript.json", "clips.json", "raw_clips.json"),
-    "repurpose": ("transcript.json", "clips.json"),
+    "caption": ("transcript_clean.json", "clips.json", "raw_clips.json"),
+    "repurpose": ("transcript_clean.json", "clips.json"),
     "publish": ("posts.json",),
 }
 
@@ -105,6 +108,7 @@ _PRODUCED_BY: dict[str, str] = {
     "media.json": "ingest",
     "enhanced_media.json": "enhance",
     "transcript.json": "transcribe",
+    "transcript_clean.json": "declutter",
     "clips.json": "select-clips",
     "raw_clips.json": "cut",
     "posts.json": "repurpose",
@@ -115,6 +119,7 @@ _PRODUCED_BY: dict[str, str] = {
 PARAM_AFFECTS: dict[str, str] = {
     "source": "ingest",
     "enhance": "enhance",
+    "declutter_level": "declutter",
     "max_clips": "select_clips",
     "min_len": "select_clips",
     "max_len": "select_clips",
@@ -278,12 +283,48 @@ def _stage_transcribe(run_id: str) -> None:
     console.print(f"  {len(transcript.segments)} segments, {transcript.duration:.1f}s, language={transcript.language}")
 
 
+# Step 3 lands with the module wired in, but the zero-key CLI default is
+# kept "off" until cut (Step 4) consumes edit_plan.json directly. The
+# moment declutter actually removes anything, clip.start/end from
+# select-clips become CLEAN-timeline coordinates -- cut still treats them
+# as raw source offsets today, so a non-off level here would silently cut
+# the wrong span of the source video until Step 4 lands.
+DEFAULT_DECLUTTER_LEVEL = "off"
+
+
+def _stage_declutter(run_id: str, level: str = DEFAULT_DECLUTTER_LEVEL) -> None:
+    _require_stage_artifact(run_id, "declutter")
+    run = load_run_state(run_id)
+    _invalidate_from(run_id, run, "declutter")
+
+    transcript = read_json(stage_path(run_id, "transcript"), Transcript)
+    console.print(f"[bold]declutter[/bold] run_id={run_id} (level={level})")
+
+    try:
+        plan = declutter.declutter(transcript, level=level)
+        clean_transcript = timeline_.apply_plan_to_transcript(transcript, plan)
+    except Exception as exc:  # noqa: BLE001
+        raise PipelineError(f"declutter: {exc}") from exc
+
+    write_json(stage_path(run_id, "edit_plan"), plan)
+    write_json(stage_path(run_id, "transcript_clean"), clean_transcript)
+
+    run = load_run_state(run_id)
+    run.params["declutter_level"] = level
+    run.mark_done("declutter")
+    save_run_state(run)
+    console.print(
+        f"  removed {plan.removed_seconds:.1f}s across {sum(1 for d in plan.decisions if d.action == 'remove')} "
+        f"span(s); clean duration {plan.clean_duration:.1f}s"
+    )
+
+
 def _stage_select_clips(run_id: str, max_clips: int, min_len: float, max_len: float) -> None:
     _require_stage_artifact(run_id, "select_clips")
     run = load_run_state(run_id)
     _invalidate_from(run_id, run, "select_clips")
 
-    transcript = read_json(stage_path(run_id, "transcript"), Transcript)
+    transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
     learnings = analyst.load_learnings()
 
     console.print(f"[bold]select-clips[/bold] run_id={run_id} (scoring candidate windows...)")
@@ -358,7 +399,7 @@ def _stage_caption(run_id: str) -> None:
     for the same reason -- see its docstring."""
     _require_stage_artifact(run_id, "caption")
 
-    transcript = read_json(stage_path(run_id, "transcript"), Transcript)
+    transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
     raw = _load_path_map(stage_path(run_id, "raw_clips"))
     all_words = transcript.all_words()
@@ -400,7 +441,7 @@ def _stage_repurpose(run_id: str, platforms: tuple[Platform, ...]) -> None:
     run = load_run_state(run_id)
     _invalidate_from(run_id, run, "repurpose")
 
-    transcript = read_json(stage_path(run_id, "transcript"), Transcript)
+    transcript = read_json(stage_path(run_id, "transcript_clean"), Transcript)
     clips = read_json_list(stage_path(run_id, "clips"), Clip)
     learnings = analyst.load_learnings()
 
@@ -475,6 +516,21 @@ def transcribe_cmd(run_id: str) -> None:
         _stage_transcribe(run_id)
     except PipelineError as exc:
         _fail("transcribe", exc)
+
+
+@app.command("declutter")
+def declutter_cmd(
+    run_id: str,
+    level: str = typer.Option(
+        DEFAULT_DECLUTTER_LEVEL,
+        "--level",
+        help="off|light|standard|aggressive -- see pipeline/declutter.py for the ladder",
+    ),
+) -> None:
+    try:
+        _stage_declutter(run_id, level=level)
+    except PipelineError as exc:
+        _fail("declutter", exc)
 
 
 @app.command("select-clips")
@@ -566,6 +622,11 @@ def run_cmd(
     max_len: float = clip_selector.DEFAULT_MAX_LEN,
     platforms: str = ",".join(DEFAULT_PLATFORMS),
     no_enhance: bool = typer.Option(False, "--no-enhance", help="Skip audio enhancement, use the source as-is"),
+    declutter_level: str = typer.Option(
+        DEFAULT_DECLUTTER_LEVEL,
+        "--declutter-level",
+        help="off|light|standard|aggressive -- see pipeline/declutter.py. Defaults to off (see its docstring).",
+    ),
     force: bool = typer.Option(False, "--force", help="Redo from the earliest stage affected by changed params"),
 ) -> None:
     """Runs every stage in order. Safe to re-run with the same --run-id:
@@ -577,6 +638,7 @@ def run_cmd(
     requested_params = {
         "source": source,
         "enhance": not no_enhance,
+        "declutter_level": declutter_level,
         "max_clips": max_clips,
         "min_len": min_len,
         "max_len": max_len,
@@ -613,6 +675,7 @@ def run_cmd(
         "ingest": lambda: _stage_ingest(source, run_id),
         "enhance": lambda: _stage_enhance(run_id, enabled=not no_enhance),
         "transcribe": lambda: _stage_transcribe(run_id),
+        "declutter": lambda: _stage_declutter(run_id, level=declutter_level),
         "select_clips": lambda: _stage_select_clips(run_id, max_clips, min_len, max_len),
         "cut": lambda: _stage_cut(run_id),
         "caption": lambda: _stage_caption(run_id),
