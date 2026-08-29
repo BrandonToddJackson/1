@@ -1,0 +1,7 @@
+post_id,platform,clip_id,views,likes,comments,shares,engagement_rate
+p-linkedin-01,linkedin,clip-01,5000,400,60,40,
+p-x-01,x,clip-01,3000,90,10,5,
+p-threads-01,threads,clip-02,2000,60,8,4,
+p-instagram-01,instagram,clip-02,8000,900,120,80,
+p-linkedin-02,linkedin,clip-03,1200,30,3,1,
+p-x-02,x,clip-03,900,15,1,0,
