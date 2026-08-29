@@ -39,6 +39,11 @@ class Settings(BaseModel):
     # Opt-in deeper denoise: arnndn needs an external .rnnn model file ffmpeg
     # doesn't ship. None (default) means afftdn (zero-key, no model needed).
     rnnoise_model_path: Path | None = None
+    # Diarization (see pipeline/transcribe.py::get_transcribe_backend).
+    elevenlabs_api_key: str | None = None
+    huggingface_token: str | None = None
+    transcribe_backend: str = "auto"
+    diarization_backend: str = "auto"
 
 
 def _parse_float(raw: str | None, default: float) -> float:
@@ -83,6 +88,10 @@ def get_settings() -> Settings:
         blotato_account_ids=_parse_blotato_account_ids(os.environ.get("BLOTATO_ACCOUNT_IDS")),
         audio_target_lufs=_parse_float(os.environ.get("AUDIO_TARGET_LUFS"), -16.0),
         rnnoise_model_path=(Path(p) if (p := os.environ.get("RNNOISE_MODEL_PATH")) else None),
+        elevenlabs_api_key=os.environ.get("ELEVENLABS_API_KEY") or None,
+        huggingface_token=os.environ.get("HUGGINGFACE_TOKEN") or None,
+        transcribe_backend=os.environ.get("TRANSCRIBE_BACKEND", "auto"),
+        diarization_backend=os.environ.get("DIARIZATION_BACKEND", "auto"),
     )
 
 
