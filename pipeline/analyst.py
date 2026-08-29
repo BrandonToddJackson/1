@@ -22,24 +22,78 @@ DEFAULT_LEARNINGS_PATH = Path("learnings.json")
 
 def load_performance(path: Path) -> list[PerformanceRecord]:
     """Reads a CSV with columns: post_id, platform, clip_id, views, likes,
-    comments, shares, engagement_rate (last one optional)."""
-    records: list[PerformanceRecord] = []
-    with path.open(newline="", encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            engagement_rate = row.get("engagement_rate") or None
-            records.append(
-                PerformanceRecord(
-                    post_id=row["post_id"],
-                    platform=row["platform"],
-                    clip_id=row.get("clip_id") or None,
-                    views=int(row.get("views") or 0),
-                    likes=int(row.get("likes") or 0),
-                    comments=int(row.get("comments") or 0),
-                    shares=int(row.get("shares") or 0),
-                    engagement_rate=float(engagement_rate) if engagement_rate else None,
-                )
+    comments, shares, engagement_rate. Only post_id/platform are required --
+    the rest default to 0/None when absent. Tolerates the messiness of real
+    exports (Excel/Sheets BOM, thousands separators, "500.0"-style floats,
+    a trailing % on engagement_rate, extra whitespace in headers/values) but
+    fails loudly -- naming the file/row/column -- on a value that's actually
+    present and unparseable, rather than silently defaulting it to 0."""
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"{path}: no header row found")
+        headers = {(h or "").strip() for h in reader.fieldnames}
+        missing = {"post_id", "platform"} - headers
+        if missing:
+            found = ", ".join(sorted(h for h in headers if h)) or "(none)"
+            raise ValueError(
+                f"{path}: missing required column(s): {', '.join(sorted(missing))}; found columns: {found}"
             )
+
+        records: list[PerformanceRecord] = []
+        for line_no, raw_row in enumerate(reader, start=2):  # header is line 1
+            row = {
+                (k or "").strip(): (v.strip() if isinstance(v, str) else v)
+                for k, v in raw_row.items()
+                if k is not None
+            }
+            post_id = row.get("post_id")
+            platform = row.get("platform")
+            if not post_id:
+                raise ValueError(f"{path}: row {line_no}: missing post_id")
+            if not platform:
+                raise ValueError(f"{path}: row {line_no}: missing platform")
+            try:
+                records.append(
+                    PerformanceRecord(
+                        post_id=post_id,
+                        platform=platform,
+                        clip_id=row.get("clip_id") or None,
+                        views=_parse_int(row.get("views"), "views"),
+                        likes=_parse_int(row.get("likes"), "likes"),
+                        comments=_parse_int(row.get("comments"), "comments"),
+                        shares=_parse_int(row.get("shares"), "shares"),
+                        engagement_rate=_parse_rate(row.get("engagement_rate")),
+                    )
+                )
+            except ValueError as exc:
+                raise ValueError(f"{path}: row {line_no}: {exc}") from exc
     return records
+
+
+def _parse_int(value: str | None, field: str) -> int:
+    if value in (None, ""):
+        return 0
+    cleaned = value.replace(",", "").replace("_", "")
+    try:
+        return int(float(cleaned))
+    except ValueError:
+        raise ValueError(f"column '{field}' has non-numeric value {value!r}")
+
+
+def _parse_rate(value: str | None) -> float | None:
+    if value in (None, ""):
+        return None
+    cleaned = value.strip()
+    is_percent = cleaned.endswith("%")
+    if is_percent:
+        cleaned = cleaned[:-1].strip()
+    cleaned = cleaned.replace(",", "")
+    try:
+        rate = float(cleaned)
+    except ValueError:
+        raise ValueError(f"column 'engagement_rate' has non-numeric value {value!r}")
+    return rate / 100 if is_percent else rate
 
 
 def analyze(
@@ -67,14 +121,19 @@ def analyze(
     top_hook_patterns = [c.hook for c in top_clips][:10]
 
     ideal_range = None
-    if top_clips:
-        durations = sorted(c.duration for c in top_clips)
+    durations = sorted(c.duration for c in top_clips if c.duration > 0)
+    if durations:
         ideal_range = (durations[0], durations[-1])
 
     notes = (
         f"Derived from {len(records)} performance record(s); "
         f"top {len(top)} by engagement rate drove these learnings."
     )
+    if top_clip_ids and not top_clips:
+        notes += (
+            f" Note: {len(top_clip_ids)} performance record(s) referenced clip_id(s) not found "
+            "in the provided clips -- check that --run-id matches the run these posts came from."
+        )
 
     return Learnings(
         top_keywords=top_keywords,
